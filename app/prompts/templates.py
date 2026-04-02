@@ -6,7 +6,7 @@ Prompt 模板管理模块
 """
 
 from enum import Enum
-from typing import Dict
+from typing import Literal
 
 
 class SceneType(str, Enum):
@@ -31,7 +31,7 @@ class SceneType(str, Enum):
 
 # System Prompt 模板字典
 # 定义每个场景下 AI 应该扮演的角色和行为准则
-SYSTEM_PROMPTS: Dict[SceneType, str] = {
+SYSTEM_PROMPTS: dict[SceneType, str] = {
     SceneType.GENERAL: (
         "你是一个高情商、温暖的年轻助手。"
         "你的任务是根据用户提供的上下文生成一句真诚的夸赞。"
@@ -80,7 +80,7 @@ SYSTEM_PROMPTS: Dict[SceneType, str] = {
 
 # User Prompt 模板字典
 # 定义每个场景下发送给 AI 的用户提示词模板
-USER_PROMPTS: Dict[SceneType, str] = {
+USER_PROMPTS: dict[SceneType, str] = {
     SceneType.GENERAL: (
         "请根据当前时间和用户状态，生成一句不超过30字的夸赞。"
     ),
@@ -103,7 +103,7 @@ USER_PROMPTS: Dict[SceneType, str] = {
 }
 
 
-def get_prompt(scene: SceneType) -> Dict[str, str]:
+def get_prompt(scene: SceneType) -> dict[str, str]:
     """
     获取指定场景的 Prompt 模板
     
@@ -185,7 +185,7 @@ MULTIMODAL_SYSTEM_PROMPTS = {
 }
 
 
-def get_chat_prompt(input_type: str) -> Dict[str, str]:
+def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> dict[str, str]:
     """
     获取多模态聊天场景的 Prompt 模板
     

@@ -5,6 +5,7 @@
 """
 
 from datetime import datetime
+from typing import Literal
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.providers.base import BaseAIProvider
@@ -55,7 +56,7 @@ class ChatService:
         has_image = bool(request.image and request.image.strip())
         
         if has_text and has_image:
-            input_type = "mixed"
+            input_type: Literal["mixed", "image_only", "text_only"] = "mixed"
         elif has_image:
             input_type = "image_only"
         else:

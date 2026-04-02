@@ -90,24 +90,24 @@ def register_exception_handlers(app: FastAPI) -> None:
     
     # 处理应用自定义异常
     @app.exception_handler(AppException)
-    async def app_exception_handler(request: Request, exc: AppException):
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         """处理 AppException 及其子类"""
         return JSONResponse(
             status_code=exc.code,
             content=ApiResponse(code=exc.code, message=exc.message).model_dump()
         )
-    
+        
     # 处理通用异常（兜底）
     @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception):
+    async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """处理所有未捕获的异常"""
         # 记录错误日志（生产环境建议添加）
         # logger.error(f"Unhandled exception: {exc}", exc_info=True)
-        
+            
         return JSONResponse(
             status_code=500,
             content=ApiResponse(
                 code=500, 
-                message=f"服务器内部错误: {str(exc)}"
+                message=f"服务器内部错误：{str(exc)}"
             ).model_dump()
         )

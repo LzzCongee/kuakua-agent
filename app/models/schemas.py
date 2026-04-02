@@ -6,7 +6,7 @@ Pydantic 模型定义模块
 
 from datetime import datetime
 from typing import Generic, Optional, TypeVar
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class QuoteResponse(BaseModel):
@@ -15,17 +15,14 @@ class QuoteResponse(BaseModel):
     
     用于返回生成的夸夸内容
     """
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+    
     content: str = Field(..., description="夸夸语录内容")
     scene: str = Field(default="general", description="场景标签")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    
-    class Config:
-        # 启用 ORM 模式，支持从 ORM 对象转换
-        from_attributes = True
-        # JSON 序列化配置
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class FavoriteCreate(BaseModel):
@@ -44,16 +41,15 @@ class FavoriteResponse(BaseModel):
     
     用于返回收藏记录的完整信息
     """
-    id: int = Field(..., description="收藏记录ID")
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+    
+    id: int = Field(..., description="收藏记录 ID")
     content: str = Field(..., description="夸夸语录内容")
     scene: str = Field(..., description="场景标签")
     created_at: datetime = Field(..., description="创建时间")
-    
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 # 泛型类型变量
@@ -76,14 +72,13 @@ class ApiResponse(BaseModel, Generic[T]):
         # 错误响应
         ApiResponse(code=400, message="参数错误")
     """
+    model_config = ConfigDict(
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+    
     code: int = Field(default=0, description="状态码，0 表示成功")
     message: str = Field(default="success", description="状态消息")
     data: Optional[T] = Field(default=None, description="响应数据")
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class ChatRequest(BaseModel):
@@ -112,13 +107,12 @@ class ChatResponse(BaseModel):
     
     用于返回 AI 生成的夸夸文案
     """
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+    
     content: str = Field(..., description="AI 生成的夸夸文案")
     scene: str = Field(..., description="场景标签")
     has_image: bool = Field(default=False, description="是否包含图片输入")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
