@@ -29,10 +29,13 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用实例
 app = FastAPI(
-    title="夸夸Agent API",
+    title="夸夸 Agent API",
     version="0.1.0",
     description="一个基于 AI 的夸夸生成服务",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",      # Swagger UI (默认)
+    redoc_url="/redoc",    # ReDoc (备选方案)
+    openapi_url="/openapi.json"  # OpenAPI schema
 )
 
 # 配置 CORS 中间件（前后端分离必需）
