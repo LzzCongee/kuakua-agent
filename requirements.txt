@@ -3,3 +3,7 @@ uvicorn==0.30.6
 openai>=1.51.0
 pydantic-settings==2.5.2
 aiosqlite==0.20.0
+
+# dev dependencies
+mypy>=1.8.0
+pydantic[mypy]>=2.0

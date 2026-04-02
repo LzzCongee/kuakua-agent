@@ -4,8 +4,8 @@
 提供夸夸语录生成的 REST API 接口。
 """
 
-from fastapi import APIRouter, Depends
-from typing import Annotated
+from fastapi import APIRouter, Depends, Query
+from typing import Annotated, Literal
 
 from app.models.schemas import ApiResponse, QuoteResponse
 from app.services.quote_service import QuoteService
@@ -65,7 +65,10 @@ async def get_random_quote(
 
 @router.get("/scene", response_model=ApiResponse[QuoteResponse])
 async def get_scene_quote(
-    type: str,
+    scene_type: Annotated[
+        Literal["career", "beauty", "love", "daily"],
+        Query(alias="type", description="场景类型: career, beauty, love, daily")
+    ],
     service: Annotated[QuoteService, Depends(get_quote_service)]
 ) -> ApiResponse[QuoteResponse]:
     """
@@ -75,7 +78,7 @@ async def get_scene_quote(
     如果传入无效的场景类型，会自动回退到通用场景。
     
     Args:
-        type: 场景类型，可选值：
+        scene_type: 场景类型，可选值：
             - career: 事业搞钱场景
             - beauty: 颜值气质场景
             - love: 甜蜜恋爱场景
@@ -96,5 +99,5 @@ async def get_scene_quote(
         >>>     }
         >>> }
     """
-    quote = await service.get_scene_quote(scene=type)
+    quote = await service.get_scene_quote(scene=scene_type)
     return ApiResponse(data=quote)

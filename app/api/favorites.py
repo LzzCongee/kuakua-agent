@@ -4,7 +4,7 @@
 提供用户收藏夸夸语录的 REST API 接口，包括列表查询、添加、删除等功能。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import Annotated
 
 from app.models.schemas import ApiResponse, FavoriteCreate, FavoriteResponse
@@ -28,7 +28,7 @@ def get_favorite_service() -> FavoriteService:
 @router.get("", response_model=ApiResponse[list[FavoriteResponse]])
 async def list_favorites(
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    user_id: str = "default"
+    user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse[list[FavoriteResponse]]:
     """
     获取用户收藏列表
@@ -64,7 +64,7 @@ async def list_favorites(
 async def add_favorite(
     data: FavoriteCreate,
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    user_id: str = "default"
+    user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse[FavoriteResponse]:
     """
     添加收藏记录
@@ -105,7 +105,7 @@ async def add_favorite(
 async def delete_favorite(
     favorite_id: int,
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    user_id: str = "default"
+    user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse:
     """
     删除单条收藏记录
@@ -134,7 +134,7 @@ async def delete_favorite(
 @router.delete("", response_model=ApiResponse)
 async def clear_favorites(
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    user_id: str = "default"
+    user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse:
     """
     清空用户所有收藏

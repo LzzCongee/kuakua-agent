@@ -5,7 +5,24 @@ AI Provider 抽象基类模块
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class AIProviderProtocol(Protocol):
+    """
+    AI Provider 协议定义（结构化子类型）
+    
+    基于 PEP 544 的 Protocol，用于类型检查的鸭子类型约束。
+    任何实现了相同方法签名的类都自动满足此协议，无需显式继承。
+    
+    与 BaseAIProvider (ABC) 的区别：
+    - ABC 要求显式继承，Protocol 基于方法签名自动匹配
+    - Protocol 更适合用于类型注解和依赖注入的参数类型
+    """
+    
+    async def generate(self, prompt: str, **kwargs: object) -> str: ...
+    async def generate_multimodal(self, messages: list[dict[str, object]], model: str | None = None) -> str: ...
 
 
 class BaseAIProvider(ABC):

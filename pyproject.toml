@@ -1,0 +1,33 @@
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+
+[tool.ruff]
+# 检查规则：开启基础(E, F), isort(I), 以及一些进阶规则
+select = ["E", "F", "I", "B", "UP"]
+target-version = "py310"
+
+[tool.ruff.lint]
+# 自动修复未使用的导入
+fixable = ["I", "F401"]
+
+[tool.ruff.format]
+quote-style = "double" # 使用双引号，符合工业界标准
+

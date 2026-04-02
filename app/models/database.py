@@ -5,6 +5,7 @@ SQLite 数据库管理模块
 """
 
 import aiosqlite
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -37,7 +38,7 @@ async def init_db(db_path: Optional[str] = None) -> None:
 
 
 @asynccontextmanager
-async def get_db(db_path: Optional[str] = None):
+async def get_db(db_path: Optional[str] = None) -> AsyncGenerator[aiosqlite.Connection, None]:
     """
     异步上下文管理器，获取数据库连接
     

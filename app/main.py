@@ -3,6 +3,7 @@
 FastAPI 应用初始化与配置
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,7 +16,7 @@ from app.api import quotes, favorites, chat
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     应用生命周期管理
     
@@ -57,7 +58,7 @@ app.include_router(chat.router)
 
 
 @app.get("/health", tags=["健康检查"])
-async def health_check():
+async def health_check() -> dict[str, str]:
     """
     健康检查接口
 

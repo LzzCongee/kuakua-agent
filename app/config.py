@@ -4,6 +4,7 @@
 """
 
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,25 +20,25 @@ class Settings(BaseSettings):
     )
 
     # 魔搭社区 API Key
-    modelscope_api_key: str
+    modelscope_api_key: str = Field(..., min_length=1, description="魔搭社区 API Key")
 
     # AI 服务基础 URL，默认为魔搭社区 OpenAI 兼容接口
-    ai_base_url: str = "https://api-inference.modelscope.cn/v1"
+    ai_base_url: str = Field(default="https://api-inference.modelscope.cn/v1", description="AI 服务基础 URL")
 
     # AI 模型名称，默认为魔搭社区 DeepSeek-R1-Distill-Qwen-7B 模型
-    ai_model: str = "deepseek-ai/DeepSeek-V3.2"
+    ai_model: str = Field(default="deepseek-ai/DeepSeek-V3.2", description="AI 模型名称")
 
     # AI 视觉模型名称，用于处理图片等视觉任务
-    ai_vision_model: str = "Qwen/Qwen2.5-VL-72B-Instruct"
+    ai_vision_model: str = Field(default="Qwen/Qwen2.5-VL-72B-Instruct", description="AI 视觉模型名称")
 
     # 数据库连接 URL，默认为本地 SQLite 数据库
-    database_url: str = "sqlite:///./kuakua.db"
+    database_url: str = Field(default="sqlite:///./kuakua.db", description="数据库连接 URL")
 
     # 应用监听主机
-    app_host: str = "0.0.0.0"
+    app_host: str = Field(default="0.0.0.0", description="应用监听主机")
 
     # 应用监听端口
-    app_port: int = 8000
+    app_port: int = Field(default=8000, ge=1, le=65535, description="应用监听端口")
 
 
 @lru_cache()
