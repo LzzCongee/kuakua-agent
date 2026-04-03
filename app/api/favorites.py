@@ -4,8 +4,9 @@
 提供用户收藏夸夸语录的 REST API 接口，包括列表查询、添加、删除等功能。
 """
 
-from fastapi import APIRouter, Depends, Query
 from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 
 from app.models.schemas import ApiResponse, FavoriteCreate, FavoriteResponse
 from app.services.favorite_service import FavoriteService

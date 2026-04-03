@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import chat, favorites, quotes
 from app.config import get_settings
-from app.models.database import init_db
 from app.core.exceptions import register_exception_handlers
-from app.api import quotes, favorites, chat
+from app.models.database import init_db
 
 
 @asynccontextmanager

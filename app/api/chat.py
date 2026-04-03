@@ -4,13 +4,14 @@
 提供基于文字和图片的多模态夸夸生成 REST API 接口
 """
 
-from fastapi import APIRouter, Depends
 from typing import Annotated
 
-from app.models.schemas import ApiResponse, ChatRequest, ChatResponse
-from app.services.chat_service import ChatService
-from app.providers.qwen import QwenProvider
+from fastapi import APIRouter, Depends
+
 from app.config import get_settings
+from app.models.schemas import ApiResponse, ChatRequest, ChatResponse
+from app.providers.qwen import QwenProvider
+from app.services.chat_service import ChatService
 
 
 # 创建路由实例

@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     modelscope_api_key: str = Field(..., min_length=1, description="魔搭社区 API Key")
 
     # AI 服务基础 URL，默认为魔搭社区 OpenAI 兼容接口
-    ai_base_url: str = Field(default="https://api-inference.modelscope.cn/v1", description="AI 服务基础 URL")
+    ai_base_url: str = Field(
+        default="https://api-inference.modelscope.cn/v1",
+        description="AI 服务基础 URL"
+    )
 
     # AI 模型名称，默认为魔搭社区 DeepSeek-R1-Distill-Qwen-7B 模型
     ai_model: str = Field(default="deepseek-ai/DeepSeek-V3.2", description="AI 模型名称")

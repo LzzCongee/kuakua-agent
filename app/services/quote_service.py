@@ -75,7 +75,10 @@ class QuoteService:
         except Exception as e:
             raise AIServiceException(f"生成随机夸夸时发生错误: {str(e)}")
     
-    async def get_scene_quote(self, scene: Literal["career", "beauty", "love", "daily", "general"]) -> QuoteResponse:
+    async def get_scene_quote(
+        self,
+        scene: Literal["career", "beauty", "love", "daily", "general"],
+    ) -> QuoteResponse:
         """
         生成指定场景的夸夸
         

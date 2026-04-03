@@ -4,13 +4,14 @@
 提供夸夸语录生成的 REST API 接口。
 """
 
-from fastapi import APIRouter, Depends, Query
 from typing import Annotated, Literal
 
-from app.models.schemas import ApiResponse, QuoteResponse
-from app.services.quote_service import QuoteService
-from app.providers.qwen import QwenProvider
+from fastapi import APIRouter, Depends, Query
+
 from app.config import get_settings
+from app.models.schemas import ApiResponse, QuoteResponse
+from app.providers.qwen import QwenProvider
+from app.services.quote_service import QuoteService
 
 
 # 创建路由实例

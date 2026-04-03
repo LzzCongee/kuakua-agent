@@ -23,7 +23,11 @@ class QwenProvider(BaseAIProvider):
         base_url: OpenAI 兼容接口地址
         
     Example:
-        >>> provider = QwenProvider(api_key="your-api-key", base_url="https://api-inference.modelscope.cn/v1", model="Qwen/Qwen-Turbo")
+        >>> provider = QwenProvider(
+        ...     api_key="your-api-key",
+        ...     base_url="https://api-inference.modelscope.cn/v1",
+        ...     model="Qwen/Qwen-Turbo"
+        ... )
         >>> result = await provider.generate("你好")
         >>> print(result)
     """

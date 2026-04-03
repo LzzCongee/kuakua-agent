@@ -1,5 +1,22 @@
+[project]
+name = "kuakua-agent"
+version = "0.1.0"
+description = "Kuakua Agent 项目"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite==0.20.0",
+    "fastapi==0.115.0",
+    "openai>=1.51.0",
+    "pydantic>=2.0",
+    "pydantic-settings==2.5.2",
+    "uvicorn==0.30.6",
+]
+
+[dependency-groups]
+dev = ["mypy>=1.0.0", "ruff>=0.3.0"]
+
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -16,13 +33,14 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 
 [tool.ruff]
+line-length = 88
 # 检查规则：开启基础(E, F), isort(I), 以及一些进阶规则
 select = ["E", "F", "I", "B", "UP"]
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 # 自动修复未使用的导入

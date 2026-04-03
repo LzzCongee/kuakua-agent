@@ -22,7 +22,11 @@ class AIProviderProtocol(Protocol):
     """
     
     async def generate(self, prompt: str, **kwargs: object) -> str: ...
-    async def generate_multimodal(self, messages: list[dict[str, object]], model: str | None = None) -> str: ...
+    async def generate_multimodal(
+        self,
+        messages: list[dict[str, object]],
+        model: str | None = None,
+    ) -> str: ...
 
 
 class BaseAIProvider(ABC):
@@ -125,5 +129,8 @@ class AIProviderException(Exception):
     
     def __str__(self) -> str:
         if self.original_error:
-            return f"{self.message} (原始错误: {type(self.original_error).__name__}: {self.original_error})"
+            return (
+                f"{self.message} "
+                f"(原始错误：{type(self.original_error).__name__}: {self.original_error})"
+            )
         return self.message

@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+pip.ini
 
 # 虚拟环境
 .venv/
