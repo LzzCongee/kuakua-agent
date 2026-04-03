@@ -29,63 +29,88 @@ Python 3.12 + FastAPI + SQLite + 魔搭社区 AI 模型
 #### 1. 安装 uv
 
 ```bash
-# Windows/macOS/Linux
+# macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# 或使用 pip
+```powershell
+# Windows PowerShell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+```bash
+# 或使用 pip（任意平台）
 pip install uv
 ```
 
 #### 2. 创建虚拟环境并安装依赖
 
 ```bash
-# 重建.venv
-uv venv --python 3.12 --clear
-uv venv .venv --python 3.12 --allow-existing 
-# 安装依赖
-uv sync -p 3.12 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --link-mode=copy
-# 使用清华镜像源（国内推荐）
-uv pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+# 创建虚拟环境（默认目录为 .venv）
+uv venv --python 3.12
+# 安装依赖（使用 uv.lock 锁定版本，更稳定）
+uv sync --python 3.12 --frozen
 ```
 
 #### 3. 配置
 
 ```bash
+# macOS/Linux
 cp .env.example .env
+```
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```text
 # 编辑 .env，填写 MODELSCOPE_API_KEY（魔搭社区访问令牌）
 ```
 
 #### 4. 启动服务
 
 ```bash
-# 方式 A：使用 uv run（无需激活虚拟环境）
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-## 启动FastAPI 服务
-uv run python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 方式 B：激活虚拟环境后运行
-.venv\Scripts\activate  # Windows PowerShell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 启动后访问 **http://localhost:8000/docs** 查看交互式 API 文档。
 
 ---
 
-### 方式二：传统 conda/pip
+### 方式二：传统 pip/conda
 
 ```bash
+# pip + venv
+python -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
+```
+
+```powershell
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+```bash
+# 或 conda
 conda create -n kuakua python=3.12 -y
 conda activate kuakua
-# 使用清华镜像源（国内推荐）
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+pip install -r requirements.txt
 ```
 
 #### 2. 配置
 
 ```bash
+# macOS/Linux
 cp .env.example .env
+```
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```text
 # 编辑 .env，填写 MODELSCOPE_API_KEY（魔搭社区访问令牌）
 ```
 
