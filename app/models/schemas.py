@@ -116,3 +116,78 @@ class ChatResponse(BaseModel):
     scene: str = Field(..., description="场景标签")
     has_image: bool = Field(default=False, description="是否包含图片输入")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
+
+
+# ==================== Admin 相关模型 ====================
+
+
+class PromptUpdate(BaseModel):
+    """更新 Prompt 请求模型"""
+    system_prompt: str = Field(..., min_length=1, description="系统提示词")
+    user_prompt: str = Field(default="", description="用户提示词")
+    input_type: str = Field(default="text_only", description="输入类型")
+    updated_by: str = Field(default="admin", description="更新者")
+
+
+class PromptResponse(BaseModel):
+    """Prompt 响应模型"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+    id: int = Field(..., description="Prompt ID")
+    scene: str = Field(..., description="场景标识")
+    system_prompt: str = Field(..., description="系统提示词")
+    user_prompt: str = Field(default="", description="用户提示词")
+    input_type: str = Field(default="text_only", description="输入类型")
+    version: int = Field(default=1, description="版本号")
+    is_active: bool = Field(default=True, description="是否激活")
+    updated_at: Optional[datetime] = Field(default=None, description="更新时间")
+    updated_by: str = Field(default="system", description="更新者")
+
+
+class PromptTestRequest(BaseModel):
+    """Prompt 测试请求模型"""
+    test_input: str = Field(..., min_length=1, description="测试输入文本")
+    temperature: float = Field(default=0.7, ge=0, le=2, description="采样温度")
+
+
+class PromptTestResponse(BaseModel):
+    """Prompt 测试响应模型"""
+    output: str = Field(..., description="AI 生成输出")
+    scene: str = Field(..., description="场景标识")
+    prompt_version: int = Field(..., description="Prompt 版本号")
+
+
+class ABTestCreate(BaseModel):
+    """创建 AB 测试请求模型"""
+    name: str = Field(..., min_length=1, description="测试名称")
+    scene: str = Field(..., min_length=1, description="场景标识")
+    prompt_a_id: int = Field(..., description="对照组 Prompt ID")
+    prompt_b_id: int = Field(..., description="实验组 Prompt ID")
+    traffic_ratio: float = Field(default=0.5, ge=0, le=1, description="实验组流量比例")
+
+
+class ABTestUpdate(BaseModel):
+    """更新 AB 测试请求模型"""
+    name: Optional[str] = Field(default=None, description="测试名称")
+    traffic_ratio: Optional[float] = Field(default=None, ge=0, le=1, description="实验组流量比例")
+    status: Optional[str] = Field(default=None, description="状态: running/stopped")
+
+
+class ABTestResponse(BaseModel):
+    """AB 测试响应模型"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+    id: int = Field(..., description="测试 ID")
+    name: str = Field(..., description="测试名称")
+    scene: str = Field(..., description="场景标识")
+    prompt_a_id: int = Field(..., description="对照组 Prompt ID")
+    prompt_b_id: int = Field(..., description="实验组 Prompt ID")
+    traffic_ratio: float = Field(..., description="实验组流量比例")
+    status: str = Field(..., description="状态")
+    created_at: Optional[datetime] = Field(default=None, description="创建时间")

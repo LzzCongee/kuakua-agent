@@ -5,7 +5,7 @@ AI Provider 抽象基类模块
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Protocol, runtime_checkable
+from typing import AsyncGenerator, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -27,6 +27,12 @@ class AIProviderProtocol(Protocol):
         messages: list[dict[str, object]],
         model: str | None = None,
     ) -> str: ...
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        **kwargs: object,
+    ) -> AsyncGenerator[str, None]: ...
 
 
 class BaseAIProvider(ABC):
@@ -93,6 +99,36 @@ class BaseAIProvider(ABC):
             AIProviderException: 当 API 调用失败时抛出
         """
         pass
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 150,
+    ) -> AsyncGenerator[str, None]:
+        """
+        调用 AI 模型流式生成文本
+        
+        默认实现：调用 generate 并一次性返回结果。
+        子类应重写此方法以实现真正的流式输出。
+        
+        Args:
+            prompt: 输入提示词
+            system_prompt: 系统提示词（可选）
+            temperature: 采样温度
+            max_tokens: 最大生成 token 数
+            
+        Yields:
+            str: 逐步生成的文本片段
+        """
+        result = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        yield result
     
     async def generate_quote(self, scene: str) -> str:
         """

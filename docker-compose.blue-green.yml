@@ -1,0 +1,54 @@
+# 蓝绿部署 docker-compose 扩展配置
+# 使用方法：docker compose -f docker-compose.yml -f docker-compose.blue-green.yml up -d
+#
+# 此文件定义了 app-blue 和 app-green 两个服务
+# 替代默认的 app 服务
+
+version: "3.8"
+
+services:
+  # 蓝组（当前生产版本）
+  app-blue:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://kuakua:kuakua123@db:5432/kuakua}
+      - MODELSCOPE_API_KEY=${MODELSCOPE_API_KEY}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api-inference.modelscope.cn/v1}
+      - AI_MODEL=${AI_MODEL:-deepseek-ai/DeepSeek-V3.2}
+      - AI_VISION_MODEL=${AI_VISION_MODEL:-Qwen/Qwen2.5-VL-72B-Instruct}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-changeme}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 绿组（新版本，灰度用）
+  app-green:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://kuakua:kuakua123@db:5432/kuakua}
+      - MODELSCOPE_API_KEY=${MODELSCOPE_API_KEY}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api-inference.modelscope.cn/v1}
+      - AI_MODEL=${AI_MODEL:-deepseek-ai/DeepSeek-V3.2}
+      - AI_VISION_MODEL=${AI_VISION_MODEL:-Qwen/Qwen2.5-VL-72B-Instruct}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-changeme}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

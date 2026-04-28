@@ -35,7 +35,7 @@ class ChatService:
         self.provider = provider
         self.vision_model = vision_model
     
-    async def chat(self, request: ChatRequest) -> ChatResponse:
+    async def chat(self, request: ChatRequest, prompt_override: dict[str, str] | None = None) -> ChatResponse:
         """
         处理用户输入，生成夸赞文案
         
@@ -63,8 +63,11 @@ class ChatService:
             input_type = "text_only"
         
         # 获取对应的 system prompt
-        prompt_template = get_chat_prompt(input_type)
-        system_prompt = prompt_template["system"]
+        if prompt_override:
+            system_prompt = prompt_override["system"]
+        else:
+            prompt_template = get_chat_prompt(input_type)
+            system_prompt = prompt_template["system"]
         
         # 根据输入类型调用不同的生成方法
         if input_type == "text_only":

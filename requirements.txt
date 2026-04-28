@@ -3,6 +3,9 @@ uvicorn==0.30.6
 openai>=1.51.0
 pydantic-settings==2.5.2
 aiosqlite==0.20.0
+asyncpg>=0.29.0
+sqlalchemy[asyncio]>=2.0
+sse-starlette>=1.6,<2.0
 
 # dev dependencies
 mypy>=1.8.0

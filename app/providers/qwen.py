@@ -4,7 +4,7 @@
 使用 OpenAI 兼容接口调用通义千问模型
 """
 
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from openai import AsyncOpenAI, APIError, AuthenticationError, RateLimitError
 
@@ -109,27 +109,52 @@ class QwenProvider(BaseAIProvider):
         except Exception as e:
             # 使用统一的错误处理方法
             raise self._handle_api_error(e)
-    
-    async def generate_quote(self, scene: str, system_prompt: Optional[str] = None) -> str:
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 150,
+    ) -> AsyncGenerator[str, None]:
         """
-        生成特定场景的夸赞文案
+        调用通义千问模型流式生成文本
         
-        便捷方法，支持传入系统提示词来设定 AI 角色。
+        使用 OpenAI SDK 的 stream 模式，逐步 yield 生成内容。
         
         Args:
-            scene: 场景描述（如用户状态、时间等上下文）
-            system_prompt: 系统提示词，定义 AI 角色和生成规则
+            prompt: 用户输入提示词
+            system_prompt: 系统提示词（可选）
+            temperature: 采样温度（默认 0.7）
+            max_tokens: 最大生成 token 数（默认 150）
             
-        Returns:
-            生成的夸赞文案
+        Yields:
+            str: 逐步生成的文本片段
+            
+        Raises:
+            AIProviderException: 当 API 调用失败时抛出
         """
-        return await self.generate(
-            prompt=scene,
-            system_prompt=system_prompt,
-            temperature=0.8,  # 夸赞可以稍微有创意一些
-            max_tokens=100    # 夸赞文案通常较短
-        )
-    
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            raise self._handle_api_error(e)
+
     def _handle_api_error(self, error: Exception) -> AIProviderException:
         """
         统一处理 API 错误

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # 应用监听端口
     app_port: int = Field(default=8000, ge=1, le=65535, description="应用监听端口")
 
+    # 管理后台 API Key（用于 admin 接口认证）
+    admin_api_key: str = Field(
+        default="changeme",
+        description="管理后台 API Key，用于 X-Admin-Key header 认证"
+    )
+
 
 @lru_cache()
 def get_settings() -> Settings:

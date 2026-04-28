@@ -7,7 +7,9 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.database import get_session
 from app.models.schemas import ApiResponse, FavoriteCreate, FavoriteResponse
 from app.services.favorite_service import FavoriteService
 
@@ -29,35 +31,15 @@ def get_favorite_service() -> FavoriteService:
 @router.get("", response_model=ApiResponse[list[FavoriteResponse]])
 async def list_favorites(
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse[list[FavoriteResponse]]:
     """
     获取用户收藏列表
     
     查询指定用户的所有收藏记录，按创建时间倒序排列。
-    
-    Args:
-        user_id: 用户标识，默认为 "default"
-        
-    Returns:
-        ApiResponse[list[FavoriteResponse]]: 收藏列表的统一响应格式
-        
-    Example:
-        >>> GET /api/favorites?user_id=default
-        >>> {
-        >>>     "code": 0,
-        >>>     "message": "success",
-        >>>     "data": [
-        >>>         {
-        >>>             "id": 1,
-        >>>             "content": "你真棒！",
-        >>>             "scene": "general",
-        >>>             "created_at": "2024-01-15T10:30:00"
-        >>>         }
-        >>>     ]
-        >>> }
     """
-    favorites = await service.list_favorites(user_id=user_id)
+    favorites = await service.list_favorites(user_id=user_id, session=session)
     return ApiResponse(data=favorites)
 
 
@@ -65,40 +47,15 @@ async def list_favorites(
 async def add_favorite(
     data: FavoriteCreate,
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse[FavoriteResponse]:
     """
     添加收藏记录
     
     为指定用户添加一条新的夸夸语录收藏。
-    
-    Args:
-        data: 收藏创建数据，包含内容和场景
-        user_id: 用户标识，默认为 "default"
-        
-    Returns:
-        ApiResponse[FavoriteResponse]: 新创建收藏记录的统一响应格式
-        
-    Example:
-        >>> POST /api/favorites?user_id=default
-        >>> {
-        >>>     "content": "你真棒！",
-        >>>     "scene": "general"
-        >>> }
-        >>> 
-        >>> Response:
-        >>> {
-        >>>     "code": 0,
-        >>>     "message": "success",
-        >>>     "data": {
-        >>>         "id": 1,
-        >>>         "content": "你真棒！",
-        >>>         "scene": "general",
-        >>>         "created_at": "2024-01-15T10:30:00"
-        >>>     }
-        >>> }
     """
-    favorite = await service.add_favorite(user_id=user_id, data=data)
+    favorite = await service.add_favorite(user_id=user_id, data=data, session=session)
     return ApiResponse(data=favorite)
 
 
@@ -106,57 +63,28 @@ async def add_favorite(
 async def delete_favorite(
     favorite_id: int,
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse:
     """
     删除单条收藏记录
     
     删除指定用户的特定收藏记录。
-    
-    Args:
-        favorite_id: 收藏记录 ID
-        user_id: 用户标识，默认为 "default"
-        
-    Returns:
-        ApiResponse: 操作结果的统一响应格式
-        
-    Example:
-        >>> DELETE /api/favorites/1?user_id=default
-        >>> {
-        >>>     "code": 0,
-        >>>     "message": "success",
-        >>>     "data": null
-        >>> }
     """
-    await service.delete_favorite(user_id=user_id, favorite_id=favorite_id)
+    await service.delete_favorite(user_id=user_id, favorite_id=favorite_id, session=session)
     return ApiResponse(message="删除成功")
 
 
 @router.delete("", response_model=ApiResponse)
 async def clear_favorites(
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default"
 ) -> ApiResponse:
     """
     清空用户所有收藏
     
     删除指定用户的所有收藏记录。
-    
-    Args:
-        user_id: 用户标识，默认为 "default"
-        
-    Returns:
-        ApiResponse: 操作结果的统一响应格式，data 字段包含删除的记录数量
-        
-    Example:
-        >>> DELETE /api/favorites?user_id=default
-        >>> {
-        >>>     "code": 0,
-        >>>     "message": "success",
-        >>>     "data": {
-        >>>         "deleted_count": 5
-        >>>     }
-        >>> }
     """
-    deleted_count = await service.clear_favorites(user_id=user_id)
+    deleted_count = await service.clear_favorites(user_id=user_id, session=session)
     return ApiResponse(message="清空成功", data={"deleted_count": deleted_count})

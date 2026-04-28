@@ -2,16 +2,23 @@
 交互式夸夸接口路由模块
 
 提供基于文字和图片的多模态夸夸生成 REST API 接口
+支持普通请求-响应和 SSE 流式输出两种模式
 """
 
-from typing import Annotated
+import json
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
+from app.models.database import get_session
 from app.models.schemas import ApiResponse, ChatRequest, ChatResponse
 from app.providers.qwen import QwenProvider
+from app.services.ab_test_service import ABTestService
 from app.services.chat_service import ChatService
+from app.services.prompt_service import PromptService
 
 
 # 创建路由实例
@@ -21,11 +28,6 @@ router = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
 def get_chat_service() -> ChatService:
     """
     获取 ChatService 实例（依赖注入工厂函数）
-    
-    创建并配置 ChatService，使用配置中的 API Key 初始化 QwenProvider。
-    
-    Returns:
-        ChatService: 配置好的交互式夸夸服务实例
     """
     settings = get_settings()
     provider = QwenProvider(
@@ -42,41 +44,124 @@ def get_chat_service() -> ChatService:
 @router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
     request: ChatRequest,
-    service: Annotated[ChatService, Depends(get_chat_service)]
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user_id: Annotated[str, Query(description="用户标识")] = "default",
 ) -> ApiResponse[ChatResponse]:
     """
-    交互式夸夸接口
-    
+    交互式夸夸接口（请求-响应模式）
+
     接收用户发送的文字和/或图片，生成个性化的夸赞文案。
-    支持三种输入模式：
-    - 纯文字：用户分享心情、经历或想法
-    - 纯图片：用户发送照片获得夸赞
-    - 图文混合：用户发送文字+图片的组合
-    
-    Args:
-        request: 包含 text（文字）、image（base64图片）、scene（场景）的请求体
-        
-    Returns:
-        ApiResponse[ChatResponse]: 包含 AI 生成夸赞文案的统一响应格式
-        
-    Example:
-        >>> POST /api/chat
-        >>> {
-        >>>     "text": "今天完成了一个重要项目！",
-        >>>     "scene": "career"
-        >>> }
-        >>> 
-        >>> Response:
-        >>> {
-        >>>     "code": 0,
-        >>>     "message": "success",
-        >>>     "data": {
-        >>>         "content": "太棒了！完成重要项目的你真的很厉害，这种执行力值得骄傲！",
-        >>>         "scene": "career",
-        >>>         "has_image": false,
-        >>>         "created_at": "2024-01-15T10:30:00"
-        >>>     }
-        >>> }
     """
-    response = await service.chat(request)
+    # 尝试从 AB 测试获取 prompt
+    prompt_override = await _try_get_ab_test_prompt(
+        request.scene, user_id, session
+    )
+
+    response = await service.chat(request, prompt_override=prompt_override)
     return ApiResponse(data=response)
+
+
+@router.post("/stream")
+async def chat_stream(
+    request: ChatRequest,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user_id: Annotated[str, Query(description="用户标识")] = "default",
+) -> EventSourceResponse:
+    """
+    交互式夸夸流式接口（SSE 模式）
+
+    接收用户发送的文字，以 Server-Sent Events 方式流式输出夸赞文案。
+    前端可使用 EventSource 或 fetch + ReadableStream 接收。
+    """
+    from datetime import datetime
+    from app.prompts.templates import get_chat_prompt
+
+    # 判断输入类型
+    has_text = bool(request.text and request.text.strip())
+    has_image = bool(request.image and request.image.strip())
+
+    if has_text and has_image:
+        input_type = "mixed"
+    elif has_image:
+        input_type = "image_only"
+    else:
+        input_type = "text_only"
+
+    # 获取 system prompt（优先从 AB 测试或数据库）
+    prompt_override = await _try_get_ab_test_prompt(
+        request.scene, user_id, session
+    )
+
+    if prompt_override:
+        system_prompt = prompt_override["system"]
+    else:
+        # 尝试从数据库获取
+        db_prompt = await _try_get_db_prompt(request.scene, input_type, session)
+        if db_prompt:
+            system_prompt = db_prompt["system"]
+        else:
+            # 回退到硬编码模板
+            prompt_template = get_chat_prompt(input_type)
+            system_prompt = prompt_template["system"]
+
+    async def event_generator():
+        try:
+            full_content = ""
+            async for chunk in service.provider.generate_stream(
+                prompt=request.text or "",
+                system_prompt=system_prompt,
+                temperature=0.7,
+                max_tokens=150,
+            ):
+                full_content += chunk
+                yield {
+                    "event": "chunk",
+                    "data": json.dumps({"content": chunk}, ensure_ascii=False),
+                }
+
+            # 发送完成事件
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "content": full_content,
+                        "scene": request.scene,
+                        "has_image": has_image,
+                        "created_at": datetime.now().isoformat(),
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": json.dumps({"message": str(e)}, ensure_ascii=False),
+            }
+
+    return EventSourceResponse(event_generator())
+
+
+async def _try_get_ab_test_prompt(
+    scene: str, user_id: str, session: AsyncSession
+) -> Optional[dict]:
+    """尝试从 AB 测试获取 prompt"""
+    try:
+        ab_service = ABTestService()
+        return await ab_service.get_prompt_for_user(scene, user_id, session)
+    except Exception:
+        return None
+
+
+async def _try_get_db_prompt(
+    scene: str, input_type: str, session: AsyncSession
+) -> Optional[dict]:
+    """尝试从数据库获取 prompt"""
+    try:
+        prompt_service = PromptService()
+        return await prompt_service.get_active_prompt_content(
+            scene, input_type, session
+        )
+    except Exception:
+        return None

@@ -1,0 +1,88 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # 代码检查和测试
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ruff check
+        run: |
+          pip install ruff
+          ruff check app/
+
+      - name: MyPy check
+        run: |
+          pip install mypy pydantic[mypy]
+          mypy app/
+        continue-on-error: true
+
+  # 部署到腾讯云 Lighthouse
+  deploy:
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/kuakua-agent
+
+            # 拉取最新代码
+            git pull origin main
+
+            # 重新构建并启动（零停机滚动更新）
+            docker compose up -d --build app
+
+            # 验证服务健康
+            sleep 5
+            curl -f http://localhost:8000/health || exit 1
+
+            # 清理旧镜像
+            docker image prune -f
+
+  # 部署测试环境
+  deploy-staging:
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    steps:
+      - name: Deploy staging via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/kuakua-agent
+
+            # 拉取 develop 分支
+            git fetch origin develop
+            git checkout develop
+            git pull origin develop
+
+            # 使用不同端口部署测试环境
+            APP_PORT=8001 docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build app
+
+            echo "Staging environment deployed on port 8001"

@@ -1,0 +1,30 @@
+{
+  "version": "2.0",
+  "envId": "kuakua-agent-prod",
+  "framework": {
+    "name": "kuakua-agent",
+    "plugins": {
+      "container": {
+        "use": "@cloudbase/framework-plugin-container",
+        "inputs": {
+          "serviceName": "kuakua-api",
+          "servicePath": "/",
+          "localPath": ".",
+          "dockerfile": "Dockerfile",
+          "containerPort": 8080,
+          "minNum": 1,
+          "maxNum": 10,
+          "envVariables": {
+            "MODELSCOPE_API_KEY": "${MODELSCOPE_API_KEY}",
+            "AI_BASE_URL": "${AI_BASE_URL}",
+            "AI_MODEL": "${AI_MODEL}",
+            "AI_VISION_MODEL": "${AI_VISION_MODEL}",
+            "DATABASE_URL": "${DATABASE_URL}",
+            "APP_HOST": "0.0.0.0",
+            "APP_PORT": "8080"
+          }
+        }
+      }
+    }
+  }
+}

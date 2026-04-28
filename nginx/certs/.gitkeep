@@ -1,0 +1,10 @@
+# 将 SSL 证书放在此目录
+# 需要 fullchain.pem 和 privkey.pem
+# 
+# 获取证书方式：
+# 1. Let's Encrypt (免费): certbot certonly --standalone -d your-domain.com
+# 2. 腾讯云免费证书: https://console.cloud.tencent.com/ssl
+#
+# 拷贝证书后：
+# cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ./fullchain.pem
+# cp /etc/letsencrypt/live/your-domain.com/privkey.pem ./privkey.pem

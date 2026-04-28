@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat, favorites, quotes
+from app.api import admin, chat, favorites, quotes
 from app.config import get_settings
 from app.core.exceptions import register_exception_handlers
-from app.models.database import init_db
+from app.models.database import init_db, close_db
 
 
 @asynccontextmanager
@@ -25,7 +25,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 启动时执行
     await init_db()
     yield
-    # 关闭时执行（如有需要可添加清理逻辑）
+    # 关闭时执行：关闭数据库连接池
+    await close_db()
 
 
 # 创建 FastAPI 应用实例
@@ -55,6 +56,7 @@ register_exception_handlers(app)
 app.include_router(quotes.router)
 app.include_router(favorites.router)
 app.include_router(chat.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["健康检查"])
