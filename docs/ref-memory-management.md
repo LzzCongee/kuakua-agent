@@ -28,109 +28,96 @@
 
 ## 二、记忆的分类（工业界标准）
 
-### 2.1 三层记忆模型
+### 2.1 四层记忆模型（前沿架构）
 
-工业界（如 LangChain、LangGraph、OpenAI Assistants API）通常采用以下分层架构：
+工业界（LangChain、Meta AI Agent、OpenAI Assistants API）通用范式，按**访问频率+价值+生命周期**分层：
 
 ```
-┌───────────────────────────────────────────────────┐
-│                   用户交互                          │
-└──────────────────────┬────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-        ▼              ▼              ▼
-  ┌──────────┐  ┌────────────┐  ┌───────────┐
-  │ 短期记忆  │  │  工作记忆   │  │  长期记忆  │
-  │ (Short-  │  │  (Working  │  │ (Long-    │
-  │  Term)   │  │   Memory)  │  │  Term)    │
-  └──────────┘  └────────────┘  └───────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              用户交互                                         │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         │                        │                        │
+         ▼                        ▼                        ▼
+  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐
+  │   工作记忆        │   │   情境记忆        │   │   语义/自传式记忆        │
+  │   (Working)      │   │   (Contextual)   │   │   (Semantic/AutoBio)    │
+  └────────┬─────────┘   └────────┬─────────┘   └────────────┬─────────────┘
+           │                       │                          │
+           ▼                       ▼                          ▼
+  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────────────┐
+  │  分钟-小时        │   │   天-周          │   │   月-永久                │
+  │  Redis/内存      │   │   PostgreSQL     │   │   向量库+知识图谱        │
+  └──────────────────┘   └──────────────────┘   └──────────────────────────┘
 ```
 
 ### 2.2 各层记忆详解
 
-#### 短期记忆（Short-term Memory）
-
-**存储内容**：当前对话/会话的消息历史
-
-**作用**：让模型理解上下文，实现多轮对话
-
-**实现方式**：
-- 简单的消息列表（message history）
-- 存储在 Redis / 内存 / 本地数据库
-- 按 `session_id` 或 `conversation_id` 索引
-
-**容量限制**：受限于模型上下文窗口（通常 8K-128K tokens）
-
-**示例**：
-```
-Session: user_123_session_456
-Messages: [
-  {role: "user", content: "今天好累"},
-  {role: "assistant", content: "辛苦啦！来夸夸你..."},
-  {role: "user", content: "再多夸一点"},
-  // ... 最近 N 条消息
-]
-```
-
 #### 工作记忆（Working Memory）
 
-**存储内容**：从对话中提取的关键事实、意图、情绪状态
+**存储内容**：当前任务的临时上下文
 
-**作用**：
-- 提取用户信息（"我是程序员"、"我喜欢画画"）
-- 跟踪情绪状态（开心、沮丧、焦虑）
-- 记录任务进度（"用户正在准备面试"）
+**周期**：分钟-小时
 
-**实现方式**：
-- 结构化数据（JSON / 数据库表）
-- 通过 LLM 自动提取，或规则提取
-- 每次对话后更新
+**示例**："用户正在咨询产品A的价格"
 
-**示例**：
-```json
-{
-  "user_id": "user_123",
-  "facts": [
-    {"key": "occupation", "value": "程序员", "confidence": 0.9},
-    {"key": "hobby", "value": "画画", "confidence": 0.8}
-  ],
-  "emotional_state": "tired",
-  "current_task": "preparing_for_interview",
-  "last_updated": "2024-01-15T10:30:00"
-}
-```
+**核心目的**：适配LLM上下文窗口，支撑实时决策，避免上下文过载
 
-#### 长期记忆（Long-term Memory）
+**实现**：Redis（TTL自动过期）+ 消息列表
 
-**存储内容**：用户画像、历史交互摘要、重要里程碑
+---
 
-**作用**：
-- 跨会话保持用户画像
-- 记住重要事件（"用户上次说面试成功了"）
-- 支持"越用越懂你"
+#### 情境记忆（Contextual Memory）
 
-**实现方式**：
-- 向量数据库（FAISS、Chroma、Pinecone、Weaviate）
-- 关系数据库 + 摘要生成
-- 定期压缩和更新
+**存储内容**：特定场景/任务的交互历史
 
-**示例**：
-```json
-{
-  "user_id": "user_123",
-  "profile": {
-    "name": "小明",
-    "interests": ["编程", "画画", "音乐"],
-    "personality_traits": ["内向", "追求完美"]
-  },
-  "milestones": [
-    {"event": "完成第一个项目", "date": "2024-01-10"},
-    {"event": "面试成功", "date": "2024-01-20"}
-  ],
-  "interaction_summary": "用户喜欢被夸赞创造力和毅力"
-}
-```
+**周期**：天-周
+
+**示例**："用户近3天咨询产品A的记录"
+
+**核心目的**：复用近期场景经验，同场景快速响应
+
+**实现**：PostgreSQL + pgvector（语义检索）
+
+---
+
+#### 语义记忆（Semantic Memory）
+
+**存储内容**：结构化知识、跨场景通用事实
+
+**周期**：月-永久
+
+**示例**："用户A偏好技术内容，拒绝营销推送"、"Agent不支持财务分析"
+
+**核心目的**：沉淀跨场景知识，支撑推理决策
+
+**实现**：知识图谱 + PostgreSQL + 向量库
+
+---
+
+#### 自传式记忆（Autobiographical Memory）
+
+**存储内容**：Agent的"自我认知"
+
+**周期**：永久（可更新）
+
+**示例**：Agent能力边界、核心决策原则、与核心用户的长期关系
+
+**核心目的**：保障Agent身份一致性，避免决策矛盾
+
+**实现**：结构化文档 + 向量存储
+
+---
+
+### 2.3 各层记忆对比
+
+| 分层类型 | 存储周期 | 存储形式 | 核心目的 | 夸夸场景应用 |
+|----------|----------|----------|----------|--------------|
+| **工作记忆** | 分钟-小时 | Redis | 实时决策 | 当前会话对话 |
+| **情境记忆** | 天-周 | PG+向量 | 场景复用 | 用户近期情绪变化 |
+| **语义记忆** | 月-永久 | 知识图谱 | 知识沉淀 | 用户偏好、夸赞风格 |
+| **自传式记忆** | 永久 | 结构化文档 | 身份一致 | Agent人设、核心原则 |
 
 ---
 
@@ -221,20 +208,186 @@ context = build_context(memories, recent_messages)
 
 ---
 
-## 四、kuakua-agent 中的记忆管理架构设计
+## 四、记忆全生命周期闭环
 
-### 4.1 当前项目状态
+### 4.1 六大核心机制
+
+记忆管理需覆盖**全生命周期**，形成闭环：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        记忆全生命周期闭环                                      │
+│                                                                              │
+│    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐                │
+│    │  采集   │───▶│  编码   │───▶│  存储   │───▶│  检索   │                │
+│    └─────────┘    └─────────┘    └─────────┘    └─────────┘                │
+│         │                                           │                        │
+│         │               ┌──────────────────────────┘                        │
+│         │               ▼                                                   │
+│         │          ┌─────────┐    ┌─────────┐                              │
+│         └─────────▶│  更新   │◀───│  遗忘   │◀──┘                          │
+│                      └─────────┘    └─────────┘                              │
+│                            │                                                  │
+│                            ▼                                                  │
+│                      ┌─────────┐                                             │
+│                      │  评估   │─────────────────────────────────────┐       │
+│                      └─────────┘                                     │       │
+│                                                                      ▼       │
+│                    ┌─────────┐ ◀───────────────────────────────────────────┘
+│                    │  采集   │
+│                    └─────────┘
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2 机制详解
+
+#### 采集（Collection）
+
+从Agent交互日志/用户输入/任务结果中抽取关键信息：
+
+- **LLM抽取**：调用LLM识别用户偏好、情绪、意图
+- **规则提取**：正则匹配、关键词识别
+- **反馈采集**：用户点赞/收藏/负面反馈
+
+```python
+# 示例：夸夸场景的信息提取
+extracted_info = {
+    "user_occupation": "程序员",      # 身份信息
+    "emotional_state": "tired",      # 情绪状态
+    "achievement": "完成项目",        # 成就事件
+    "preference": "喜欢具体夸奖"     # 偏好
+}
+```
+
+#### 编码（Encoding）
+
+将文本转为向量 + 结构化元数据：
+
+```python
+{
+    "memory_id": "mem-20240520-001",
+    "type": "contextual",  # working/contextual/semantic/autobiographical
+    "owner_id": "user_123",
+    "scene": "career",     # 场景标签
+    "content": "用户完成了一个重要项目",
+    "embedding": [0.123, 0.456, ...],  # 768维向量
+    "importance_score": 0.85,  # LLM打分（0-1）
+    "timestamp": "2024-05-20T10:30:00Z",
+    "evaluation": {
+        "accuracy": 0.9,
+        "relevance": 0.88
+    }
+}
+```
+
+#### 存储（Storage）
+
+分层存储策略：
+
+| 层级 | 存储引擎 | 策略 |
+|------|----------|------|
+| 工作记忆 | Redis | TTL自动过期、增量写入 |
+| 情境/语义记忆 | PostgreSQL + pgvector | 结构化元数据 + 向量检索 |
+| 自传式记忆 | PostgreSQL + 对象存储 | 结构化 + 多模态支持 |
+
+#### 检索（Retrieval）
+
+混合检索策略：
+
+```python
+async def retrieve_memories(user_id: str, query: str, top_k: int = 5):
+    # 1. 语义向量检索
+    semantic_results = await vector_db.search(
+        query_embedding=get_embedding(query),
+        top_k=top_k
+    )
+    
+    # 2. 关键词过滤
+    keyword_results = await db.search_by_keywords(query)
+    
+    # 3. 场景规则匹配
+    scene_results = await db.filter_by_scene(user_id, query.scene)
+    
+    # 4. 召回 → 重排序
+    combined = merge_and_rerank(semantic_results, keyword_results, scene_results)
+    
+    # 5. 优先返回高价值记忆
+    return sort_by_importance(combined)
+```
+
+#### 更新/遗忘（Update/Forgetting）
+
+- **增量更新**：新记忆追加，重要信息覆盖旧信息
+- **迭代修正**：LLM判断记忆冲突，自动纠错
+- **遗忘机制**：低重要性/超期记忆自动清理
+
+```python
+# 遗忘策略示例
+async def cleanup_memories(user_id: str):
+    # 1. 清理过期记忆（时间维度）
+    await db.delete_expired(user_id, days=90)
+    
+    # 2. 清理低重要性记忆（价值维度）
+    await db.delete_low_importance(user_id, threshold=0.3)
+    
+    # 3. 合并重复记忆（去重）
+    await db.merge_duplicates(user_id)
+```
+
+#### 评估（Evaluation）
+
+对接Prompt评测体系，量化记忆有效性：
+
+```python
+evaluation_metrics = {
+    "task_completion_rate": 0.85,      # 任务完成率
+    "answer_accuracy": 0.92,            # 回答准确率
+    "relevance_score": 0.88,           # 检索相关性
+    "memory_freshness": 0.75           # 记忆新鲜度
+}
+```
+
+### 4.3 记忆爆炸与冲突处理
+
+#### 记忆爆炸问题
+
+**问题**：数据无限增长 → 上下文超限、检索慢、存储成本高
+
+**解决**：
+1. TTL过期（Redis自动清理）
+2. 重要性评分 + 阈值过滤
+3. 定期压缩/摘要归档
+
+#### 记忆冲突问题
+
+**问题**：用户信息变化，但旧记忆未更新
+
+**解决**：
+1. 添加 `confidence` 和 `last_verified` 字段
+2. 新信息覆盖时降低旧信息权重
+3. LLM定期判断哪些记忆需要更新
+
+---
+
+## 五、kuakua-agent 中的记忆管理架构设计
+
+### 5.1 当前项目状态
 
 当前项目实现了**基础会话管理**（通过 `user_id`），但缺少：
 - 多轮对话历史管理
 - 用户画像/偏好提取
 - 长期记忆存储与检索
 
-### 4.2 推荐的数据库表设计
+### 5.2 四层数据库表设计
 
-在现有数据库基础上，新增以下表：
+在现有数据库基础上，按四层架构设计：
 
 ```sql
+-- ========== Layer 1: 工作记忆 (Working Memory) ==========
+-- 使用 Redis，TTL 自动过期
+
+-- ========== Layer 2: 情境记忆 (Contextual Memory) ==========
+
 -- 对话会话表
 CREATE TABLE conversations (
     id SERIAL PRIMARY KEY,
@@ -245,40 +398,101 @@ CREATE TABLE conversations (
     is_active BOOLEAN DEFAULT TRUE
 );
 
--- 对话消息表（短期记忆）
+-- 对话消息表（短期→情境记忆）
 CREATE TABLE messages (
     id SERIAL PRIMARY KEY,
     conversation_id INTEGER REFERENCES conversations(id),
     role VARCHAR(20) NOT NULL,  -- 'user', 'assistant', 'system'
     content TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}',  -- 扩展字段（情绪、标签等）
+    metadata JSONB DEFAULT '{}',  -- 情绪、标签、场景
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 用户画像/工作记忆表
+-- ========== Layer 3: 语义记忆 (Semantic Memory) ==========
+
+-- 用户画像表（结构化偏好与知识）
 CREATE TABLE user_profiles (
     id SERIAL PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL UNIQUE,
-    profile_data JSONB NOT NULL,  -- 存储提取的事实、偏好
-    emotional_state VARCHAR(50),
+    
+    -- 身份与偏好
+    identity_facts JSONB DEFAULT '{}',      -- {职业、年龄、兴趣}
+    emotional_patterns JSONB DEFAULT '{}', -- {常出现的情绪类型}
+    praise_preferences JSONB DEFAULT '{}', -- {喜欢的夸法}
+    
+    -- 元数据
+    interaction_count INT DEFAULT 0,
     last_interaction TIMESTAMP,
+    confidence FLOAT DEFAULT 0.5,  -- 画像可信度
+    last_verified TIMESTAMP,      -- 上次验证时间
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 长期记忆向量表（如果用 pgvector 扩展）
--- 或使用外部向量数据库
+-- ========== Layer 4: 自传式记忆 (Autobiographical Memory) ==========
+
+-- 长期记忆向量表（pgvector 或外部向量数据库）
 CREATE TABLE long_term_memories (
     id SERIAL PRIMARY KEY,
+    memory_id VARCHAR(50) UNIQUE NOT NULL,  -- mem-YYYYMMDD-XXX
+    
+    -- 核心字段
     user_id VARCHAR(100) NOT NULL,
-    content TEXT NOT NULL,
-    embedding vector(1536),  -- OpenAI embedding 维度
-    memory_type VARCHAR(50),  -- 'fact', 'event', 'preference'
-    importance FLOAT DEFAULT 0.5,  -- 重要性评分
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    memory_type VARCHAR(50) NOT NULL,  -- working/contextual/semantic/autobiographical
+    scene VARCHAR(50),                   -- 场景标签
+    
+    content TEXT NOT NULL,               -- 记忆文本
+    embedding vector(1536),               -- 向量（BGE/OpenAI Embeddings）
+    
+    -- 重要性与评估
+    importance_score FLOAT DEFAULT 0.5,  -- LLM打分（0-1）
+    evaluation JSONB DEFAULT '{}',        -- {accuracy, relevance}
+    
+    -- 审计字段
+    related_task_id VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_verified TIMESTAMP,
+    last_accessed TIMESTAMP,
+    access_count INT DEFAULT 0
 );
+
+-- 索引优化
+CREATE INDEX idx_memories_user_id ON long_term_memories(user_id);
+CREATE INDEX idx_memories_type ON long_term_memories(memory_type);
+CREATE INDEX idx_memories_importance ON long_term_memories(importance_score);
 ```
 
-### 4.3 推荐的 Python 服务层设计
+### 5.3 观测层设计（可观测性）
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           观测层 (Observability)                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────────────────┐  │
+│  │ 日志系统     │   │ 指标监控     │   │ 全链路追踪                   │  │
+│  │             │   │             │   │                             │  │
+│  │ • 记忆操作   │   │ • 检索准确率 │   │ Agent → Memory → Evaluation │  │
+│  │ • 评测记录   │   │ • 评测得分   │   │                             │  │
+│  │ • Agent交互 │   │ • 任务完成率 │   │ 请求链路可视化                │  │
+│  └─────────────┘   └─────────────┘   └─────────────────────────────┘  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**日志字段示例**：
+```python
+log_entry = {
+    "timestamp": "2024-05-20T10:30:00Z",
+    "event_type": "memory_retrieve",  # memory_save/retrieve/update/forget
+    "user_id": "user_123",
+    "memory_type": "semantic",
+    "retrieved_count": 5,
+    "latency_ms": 12,
+    "trace_id": "trace-xxx-yyy"
+}
+```
+
+### 5.4 Python 服务层设计
 
 ```python
 # app/services/memory_service.py
@@ -324,7 +538,7 @@ class MemoryService:
         return combine_context(recent, profile, memories)
 ```
 
-### 4.4 推荐的 API 接口设计
+### 5.5 协作友好的 API 接口设计
 
 在现有 admin API 基础上，新增记忆管理接口：
 
@@ -344,17 +558,26 @@ PUT    /api/memory/profile                       # 更新用户画像
 # 记忆检索
 GET    /api/memory/retrieve?user_id=xxx&q=xxx    # 检索相关记忆
 DELETE /api/memory/{id}                          # 删除记忆
+
+# ===== 评测相关 API =====
+POST   /api/memory/eval/run                      # 运行单次评测
+POST   /api/memory/eval/batch                    # 批量评测
+GET    /api/memory/eval/results/{test_id}        # 查看评测结果
+
+# ===== 数据导入导出（协作用）=====
+GET    /api/memory/export/{user_id}              # 导出用户数据
+POST   /api/memory/import/{user_id}             # 导入用户数据
 ```
 
 ---
 
-## 五、Prompt 评测方法论
+## 六、Prompt 评测方法论
 
-### 5.1 什么是 Prompt 评测？
+### 6.1 什么是 Prompt 评测？
 
 Prompt 评测是系统性地测试和比较不同 Prompt 模板的效果，确保输出质量符合预期。
 
-### 5.2 评测维度
+### 6.2 评测维度
 
 | 维度 | 说明 | 评估方式 |
 |------|------|----------|
@@ -365,7 +588,7 @@ Prompt 评测是系统性地测试和比较不同 Prompt 模板的效果，确�
 | 安全性 | 是否包含不当内容 | 规则过滤 + LLM 检测 |
 | 长度 | 输出长度是否合适 | 统计 tokens |
 
-### 5.3 评测流程
+### 6.3 评测流程
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -412,7 +635,7 @@ Prompt 评测是系统性地测试和比较不同 Prompt 模板的效果，确�
 └─────────────────────────────────────────────────┘
 ```
 
-### 5.4 实现示例（LLM-as-Judge）
+### 6.4 实现示例（LLM-as-Judge）
 
 ```python
 # app/services/prompt_evaluator.py
@@ -490,7 +713,7 @@ class PromptEvaluator:
         return self._calculate_statistics(results)
 ```
 
-### 5.5 A/B 测试与灰度发布
+### 6.5 A/B 测试与灰度发布
 
 在现有 `/api/admin/ab-tests` 基础上，增加评测数据收集：
 
@@ -521,7 +744,7 @@ GET /api/admin/ab-tests/{id}/metrics    # 查看关键指标（点赞率、收�
 
 ---
 
-## 六、团队协作工作流
+## 七、团队协作工作流
 
 ### 6.1 角色分工
 
@@ -609,7 +832,7 @@ curl -X POST http://localhost:8000/api/admin/ab-tests \
 
 ---
 
-## 七、工业界最佳实践参考
+## 八、工业界最佳实践参考
 
 ### 7.1 LangChain Memory 模块
 
@@ -726,7 +949,7 @@ run = client.beta.threads.runs.create(
 
 ---
 
-## 八、实施路线图
+## 九、实施路线图
 
 ### Phase 1: 基础记忆管理（1-2 周）
 
@@ -771,9 +994,9 @@ run = client.beta.threads.runs.create(
 
 ---
 
-## 九、常见问题与陷阱
+## 十、常见问题与陷阱
 
-### 9.1 记忆爆炸
+### 10.1 记忆爆炸
 
 **问题**：随着对话增加，记忆数据无限增长，导致：
 - 上下文超出模型限制
@@ -795,7 +1018,7 @@ async def cleanup_old_memories(user_id, days=30):
     )
 ```
 
-### 9.2 记忆冲突
+### 10.2 记忆冲突
 
 **问题**：用户信息变化，但旧记忆未更新（如用户换了工作）
 
@@ -804,7 +1027,7 @@ async def cleanup_old_memories(user_id, days=30):
 2. 新信息覆盖旧信息时，降低旧信息权重
 3. 定期让 LLM 判断哪些记忆需要更新
 
-### 9.3 隐私与安全
+### 10.3 隐私与安全
 
 **问题**：用户敏感信息存储风险
 
@@ -818,7 +1041,7 @@ async def cleanup_old_memories(user_id, days=30):
 DELETE /api/memory/user-data?user_id=xxx
 ```
 
-### 9.4 Prompt 评测的陷阱
+### 10.4 Prompt 评测的陷阱
 
 **问题**：LLM-as-Judge 评分不一定可靠
 
@@ -829,22 +1052,48 @@ DELETE /api/memory/user-data?user_id=xxx
 
 ---
 
-## 十、总结
+## 十一、总结
+
+### 核心架构
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        四层记忆体系                                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  工作记忆 ──── Redis ─────────── 分钟-小时 ─── 实时决策                    │
+│  情境记忆 ──── PG+向量 ──────── 天-周 ────── 场景复用                     │
+│  语义记忆 ──── 知识图谱+向量 ── 月-永久 ───── 知识沉淀                     │
+│  自传式 ────── 结构化文档 ───── 永久 ─────── 身份一致                     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 核心机制闭环
+
+```
+采集 → 编码 → 存储 → 检索 → 更新 → 遗忘 → 评估
+  ↑                                        │
+  └────────────────────────────────────────┘
+```
+
+### 推荐方案
 
 | 维度 | 推荐方案 |
 |------|----------|
-| **短期记忆** | PostgreSQL messages 表 + 滑动窗口 |
-| **工作记忆** | PostgreSQL user_profiles 表 + LLM 提取 |
-| **长期记忆** | pgvector 向量检索 或 外部向量数据库 |
+| **工作记忆** | Redis + TTL 自动过期 |
+| **情境记忆** | PostgreSQL messages 表 + pgvector |
+| **语义记忆** | PostgreSQL user_profiles + LLM 提取 |
+| **自传式记忆** | PostgreSQL long_term_memories |
 | **上下文构建** | 分层混合（画像 + 检索 + 摘要 + 最近消息） |
+| **观测层** | 日志 + 指标监控 + 全链路追踪 |
 | **Prompt 评测** | LLM-as-Judge + A/B 测试 + 人工抽查 |
-| **团队协作** | Admin API 暴露 + 测试集共享 |
+| **团队协作** | Admin API + 数据导入导出 + 共享看板 |
 
-**核心原则**：
-1. 从简单开始，逐步迭代
-2. 记忆管理是持续优化的过程，不是一次性工作
-3. 评测数据驱动决策，不凭感觉改 Prompt
-4. 保护用户隐私，提供数据删除能力
+### 核心原则
+
+1. **分层适配**：按访问频率/价值选择存储策略
+2. **全生命周期闭环**：采集→编码→存储→检索→更新→遗忘→评估
+3. **评测驱动**：数据驱动 Prompt 和记忆策略迭代
+4. **隐私优先**：脱敏存储、用户可删除
 
 ---
 

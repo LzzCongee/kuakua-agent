@@ -390,6 +390,183 @@ async def import_user_data(user_id: str, data: dict):
     return await memory_service.import_all(user_id, data)
 ```
 
+### 3.4 标准化协作接口
+
+**核心目标**：解耦记忆管理与评测模块，通过标准化接口高效协作。
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         标准化协作接口设计                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────┐              ┌─────────────────┐                      │
+│  │  记忆管理模块    │              │  评测管理模块     │                      │
+│  │                 │              │                 │                      │
+│  │  • 采集/存储    │◀────────────▶│  • 测试集管理    │                      │
+│  │  • 检索/更新    │              │  • 评分/报告     │                      │
+│  │  • 遗忘清理    │              │  • A/B 测试      │                      │
+│  └────────┬────────┘              └────────┬────────┘                      │
+│           │                                │                               │
+│           │    ┌──────────────────────┐    │                               │
+│           │    │  标准化接口层        │    │                               │
+│           │    ├──────────────────────┤    │                               │
+│           │    │  Memory→Eval:       │    │                               │
+│           │    │  - 记忆-任务关联API  │    │                               │
+│           │    │  - 记忆内容查询API  │    │                               │
+│           │    ├──────────────────────┤    │                               │
+│           │    │  Eval→Memory:       │    │                               │
+│           │    │  - 回调评测结果API  │    │                               │
+│           │    │  - 驱动记忆更新/遗忘 │    │                               │
+│           │    └──────────────────────┘    │                               │
+│           │                                │                               │
+└───────────┼────────────────────────────────┼───────────────────────────────┘
+            │                                │
+            ▼                                ▼
+     ┌─────────────────────────────────────────────────┐
+     │              观测层 (Observability)               │
+     │  日志系统 │ 指标监控 │ 全链路追踪 │ 共享看板      │
+     └─────────────────────────────────────────────────┘
+```
+
+**接口定义示例**：
+
+```python
+# ===== 记忆→评测：数据共享接口 =====
+
+@router.get("/api/memory/eval/link/{task_id}")
+async def get_memory_task_link(task_id: str):
+    """
+    获取记忆-任务关联数据
+    供评测验证记忆有效性
+    """
+    return {
+        "task_id": task_id,
+        "used_memories": [
+            {
+                "memory_id": "mem-001",
+                "content": "用户是程序员",
+                "memory_type": "semantic",
+                "scene": "career"
+            }
+        ],
+        "agent_decision": "选择夸赞用户的专业技术能力"
+    }
+
+# ===== 评测→记忆：回调更新接口 =====
+
+@router.post("/api/memory/eval/callback")
+async def eval_result_callback(result: EvalCallback):
+    """
+    评测结果回调
+    驱动记忆更新/遗忘策略优化
+    """
+    # 1. 记录评测得分
+    await memory_service.record_eval_score(
+        memory_id=result.memory_id,
+        score=result.score,
+        feedback=result.feedback
+    )
+    
+    # 2. 如果得分低，标记为待遗忘
+    if result.score < 0.5:
+        await memory_service.mark_for_forgetting(result.memory_id)
+    
+    # 3. 如果发现新模式，更新画像
+    if result.new_pattern:
+        await memory_service.update_profile(result.user_id, result.new_pattern)
+```
+
+### 3.5 观测层设计
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           观测层 (Observability)                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────────┐  │
+│  │   日志系统    │  │   指标监控    │  │   全链路追踪                      │  │
+│  │              │  │              │  │                                  │  │
+│  │ • 记忆操作   │  │ • 检索准确率  │  │ Agent → Memory → Evaluation      │  │
+│  │   日志       │  │ • 评测得分   │  │     ↓         ↓           ↓      │  │
+│  │ • 评测记录   │  │ • 任务完成率 │  │   Request  →  Store    →  Score  │  │
+│  │ • Agent交互  │  │ • 记忆新鲜度 │  │                                  │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────────────┘  │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                          共享看板 (Dashboard)                          │  │
+│  │                                                                       │  │
+│  │   记忆团队视角：                    评测团队视角：                      │  │
+│  │   • 记忆使用率                      • 评测得分趋势                      │  │
+│  │   • 检索命中率                      • A/B 测试对比                      │  │
+│  │   • 遗忘清理效果                    • 低分样本分析                      │  │
+│  │                                                                       │  │
+│  │   ┌─────────────────┐    ┌─────────────────┐                        │  │
+│  │   │   脱敏后记忆     │◄──▶│   脱敏后评测     │                        │  │
+│  │   │   数据展示       │    │   结果展示       │                        │  │
+│  │   └─────────────────┘    └─────────────────┘                        │  │
+│  │                                                                       │  │
+│  │   人工标注回流：评测团队标注的低质量记忆 → 回流到记忆管理器优化抽取策略     │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**日志字段规范**：
+
+```python
+# 记忆操作日志
+memory_log = {
+    "timestamp": "2024-05-20T10:30:00Z",
+    "event_type": "memory_retrieve",  # save/retrieve/update/forget
+    "user_id": "user_123",
+    "memory_id": "mem-001",
+    "memory_type": "semantic",
+    "scene": "career",
+    "retrieved_count": 5,
+    "latency_ms": 12,
+    "trace_id": "trace-xxx-yyy",
+    "eval_triggered": True,
+    "eval_score": 0.88
+}
+
+# 评测任务日志
+eval_log = {
+    "timestamp": "2024-05-20T10:30:00Z",
+    "test_id": "test-001",
+    "prompt_version": "v2.1",
+    "input": "今天被老板骂了",
+    "output": "虽然被批评了...",
+    "scores": {
+        "relevance": 0.92,
+        "warmth": 0.85,
+        "personalization": 0.78
+    },
+    "memory_used": ["mem-001", "mem-003"],
+    "user_feedback": None  # 后续补充
+}
+```
+
+**版本化管理**：
+
+```python
+# Prompt 版本管理
+class PromptVersion:
+    version: str          # v1.0, v2.1
+    prompt_template: str
+    created_at: datetime
+    created_by: str
+    eval_scores: list[float]
+    status: str           # draft/active/deprecated
+
+# 记忆模板版本管理
+class MemoryTemplate:
+    version: str          # mt-v1.0
+    extraction_rules: dict
+    importance_threshold: float
+    ttl_days: int
+    created_at: datetime
+    eval_feedback: dict
+```
+
 ---
 
 ## 四、团队协作模式
@@ -466,7 +643,7 @@ curl http://localhost:8000/api/memory/export/user_123 \
 
 ## 五、存储方案选型
 
-### 5.1 方案对比
+### 5.1 自建方案对比
 
 | 方案 | 适用场景 | 优点 | 缺点 | 成本 |
 |------|----------|------|------|------|
@@ -476,18 +653,35 @@ curl http://localhost:8000/api/memory/export/user_123 \
 | **Pinecone/Milvus** | 大规模生产 | 云原生、高可用 | 需要维护 | 高 |
 | **混合方案** | 推荐 | 各取所长 | 复杂度略高 | 中 |
 
-### 5.2 夸夸机器人推荐方案
+### 5.2 BaaS 方案对比（Cloudbase vs Supabase）
+
+| 确认维度 | Supabase | Cloudbase |
+|----------|----------|-----------|
+| **向量存储** | PG+pgvector 原生支持 | 需额外插件适配 |
+| **Redis 缓存** | 可通过第三方服务 | 云开发缓存 API |
+| **对象存储** | S3 兼容存储 | 腾讯云 COS |
+| **协作权限** | 细粒度 RLS 策略 | 身份认证+安全规则 |
+| **实时同步** | Realtime 原生支持 | 实时数据库能力 |
+| **可扩展性** | 自动扩缩容 | 按量计费弹性 |
+| **SDK 支持** | Python/Node.js/Flutter | Python/Node.js |
+| **合规/区域** | 开源可控、多区域 | 国内合规、微信生态 |
+
+**选型建议**：
+- **Supabase**：开源可控，适合技术团队自主定制，适配开源 Agent 框架
+- **Cloudbase**：国内访问快，集成微信生态（如面向小程序场景）
+
+### 5.3 夸夸机器人推荐方案
 
 **Phase 1（0-10万用户）**：
 ```
-短期记忆：Redis
+短期记忆：Redis（TTL 自动过期）
 中期记忆：PostgreSQL JSONB
 长期记忆：PostgreSQL + 全文检索（暂不加向量）
 ```
 
 **Phase 2（10万+用户或需要语义检索）**：
 ```
-添加 pgvector 或 Chroma
+添加 pgvector 或使用 Supabase/Cloudbase 向量能力
 ```
 
 ---
@@ -496,8 +690,8 @@ curl http://localhost:8000/api/memory/export/user_123 \
 
 | 文档 | 内容 |
 |------|------|
-| **[记忆管理机制详解](./memory-management.md)** | 记忆分类、三层模型、Prompt 评测方法论 |
-| **本文档** | 架构设计、前沿趋势、团队协作指南 |
+| **[记忆管理机制详解](./memory-management.md)** | 四层模型、全生命周期闭环、Prompt 评测方法论 |
+| **本文档** | 架构设计、前沿趋势、团队协作指南、存储选型 |
 
 ---
 
@@ -507,3 +701,7 @@ curl http://localhost:8000/api/memory/export/user_123 \
 - [LLM-as-Judge 论文](https://arxiv.org/abs/2306.05685)
 - [pgvector GitHub](https://github.com/pgvector/pgvector)
 - [RAG 最佳实践](https://docs.llamaindex.ai/en/stable/)
+- [Supabase 向量检索](https://supabase.com/docs/guides/database/postgres/vector)
+- [神经符号记忆 (Google Sparrow)](https://arxiv.org/abs/2204.01691)
+- [Meta Agent 记忆架构](https://arxiv.org/abs/2308.00352)
+- [Claude Context Compression](https://www.anthropic.com/news/context-windows)
