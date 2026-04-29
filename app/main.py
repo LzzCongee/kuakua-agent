@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import admin, chat, favorites, quotes
+from app.api import admin, chat, favorites, memory, quotes
 from app.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.models.database import init_db, close_db
@@ -57,6 +57,7 @@ app.include_router(quotes.router)
 app.include_router(favorites.router)
 app.include_router(chat.router)
 app.include_router(admin.router)
+app.include_router(memory.router)
 
 
 @app.get("/health", tags=["健康检查"])

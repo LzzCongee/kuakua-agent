@@ -191,3 +191,98 @@ class ABTestResponse(BaseModel):
     traffic_ratio: float = Field(..., description="实验组流量比例")
     status: str = Field(..., description="状态")
     created_at: Optional[datetime] = Field(default=None, description="创建时间")
+
+
+# ==================== 记忆模块相关模型 ====================
+
+
+class SessionCreate(BaseModel):
+    """创建短期会话请求模型"""
+    session_id: str = Field(..., min_length=1, description="会话ID")
+    user_id: str = Field(default="default", description="用户ID")
+    scene: str = Field(default="general", description="场景标签")
+    messages: list[dict] = Field(default_factory=list, description="消息列表")
+
+
+class SessionUpdate(BaseModel):
+    """更新会话请求模型"""
+    messages: list[dict] = Field(..., description="消息列表")
+    scene: Optional[str] = Field(default=None, description="场景标签")
+
+
+class SessionResponse(BaseModel):
+    """会话响应模型"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+    id: int = Field(..., description="会话记录 ID")
+    session_id: str = Field(..., description="会话ID")
+    user_id: str = Field(..., description="用户ID")
+    scene: str = Field(..., description="场景标签")
+    messages: list[dict] = Field(default_factory=list, description="消息列表")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: Optional[datetime] = Field(default=None, description="更新时间")
+
+
+class UserProfileUpdate(BaseModel):
+    """更新用户偏好请求模型"""
+    prefer_scene: Optional[str] = Field(default=None, description="喜欢的场景")
+    prefer_style: Optional[str] = Field(default=None, description="喜欢的夸夸风格")
+    user_tags: Optional[list[str]] = Field(default=None, description="用户标签列表")
+    avoid_words: Optional[list[str]] = Field(default=None, description="避免的词汇")
+    last_emotion: Optional[str] = Field(default=None, description="最近情绪")
+
+
+class UserProfileResponse(BaseModel):
+    """用户偏好响应模型"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+    id: int = Field(..., description="记录 ID")
+    user_id: str = Field(..., description="用户ID")
+    prefer_scene: Optional[str] = Field(default=None, description="喜欢的场景")
+    prefer_style: Optional[str] = Field(default=None, description="喜欢的风格")
+    user_tags: list[str] = Field(default_factory=list, description="用户标签")
+    avoid_words: list[str] = Field(default_factory=list, description="避免词汇")
+    last_emotion: Optional[str] = Field(default=None, description="最近情绪")
+    conversation_count: int = Field(default=0, description="对话次数")
+    favorite_count: int = Field(default=0, description="收藏次数")
+    last_active: Optional[datetime] = Field(default=None, description="最后活跃时间")
+
+
+class MilestoneCreate(BaseModel):
+    """创建里程碑请求模型"""
+    user_id: str = Field(default="default", description="用户ID")
+    content: str = Field(..., min_length=1, description="里程碑内容")
+    source: str = Field(default="user_input", description="来源")
+    importance: int = Field(default=1, ge=1, le=5, description="重要性")
+
+
+class MilestoneResponse(BaseModel):
+    """里程碑响应模型"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+    id: int = Field(..., description="记录 ID")
+    user_id: str = Field(..., description="用户ID")
+    content: str = Field(..., description="里程碑内容")
+    source: Optional[str] = Field(default=None, description="来源")
+    importance: int = Field(..., description="重要性")
+    is_achieved: bool = Field(default=False, description="是否达成")
+    created_at: datetime = Field(..., description="创建时间")
+
+
+class MemorySummary(BaseModel):
+    """用户记忆汇总模型（用于注入Prompt）"""
+    prefer_scene: Optional[str] = Field(default=None, description="偏好场景")
+    prefer_style: Optional[str] = Field(default=None, description="偏好风格")
+    user_tags: list[str] = Field(default_factory=list, description="用户标签")
+    recent_messages: list[dict] = Field(default_factory=list, description="最近消息")
+    milestones: list[str] = Field(default_factory=list, description="高光里程碑")
+    last_emotion: Optional[str] = Field(default=None, description="最近情绪")

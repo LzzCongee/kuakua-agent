@@ -2,12 +2,14 @@
 交互式夸夸服务模块
 
 提供基于文字和图片的多模态夸夸生成功能
+支持记忆注入，实现个性化夸夸
 """
 
+import json
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
-from app.models.schemas import ChatRequest, ChatResponse
+from app.models.schemas import ChatRequest, ChatResponse, MemorySummary
 from app.providers.base import BaseAIProvider
 from app.prompts.templates import get_chat_prompt
 
@@ -18,32 +20,51 @@ class ChatService:
     
     处理用户发送的文字和图片，调用 AI 模型生成个性化的夸赞文案。
     支持纯文字、纯图片、图文混合三种输入模式。
+    支持记忆注入，实现千人千面的个性化夸夸。
     
     Attributes:
         provider: AI Provider 实例，用于调用大模型
         vision_model: 视觉模型名称，用于处理图片输入
+        memory_service: 可选的 MemoryService 实例，用于获取用户记忆
     """
     
-    def __init__(self, provider: BaseAIProvider, vision_model: str):
+    def __init__(
+        self, 
+        provider: BaseAIProvider, 
+        vision_model: str,
+        memory_service: Optional[object] = None
+    ):
         """
         初始化 ChatService
         
         Args:
             provider: AI Provider 实例
             vision_model: 视觉模型名称，用于处理图片输入
+            memory_service: 可选的 MemoryService 实例
         """
         self.provider = provider
         self.vision_model = vision_model
+        self.memory_service = memory_service
     
-    async def chat(self, request: ChatRequest, prompt_override: dict[str, str] | None = None) -> ChatResponse:
+    async def chat(
+        self, 
+        request: ChatRequest, 
+        prompt_override: dict[str, str] | None = None,
+        memory_summary: MemorySummary | None = None
+    ) -> ChatResponse:
         """
         处理用户输入，生成夸赞文案
         
         根据输入类型（纯文字、纯图片、图文混合）选择不同的处理方式，
         调用相应的 AI 模型生成个性化的夸赞内容。
         
+        如果提供了 memory_summary，会将其注入到 system prompt 中，
+        实现基于用户偏好的个性化夸夸。
+        
         Args:
             request: 包含 text、image、scene 的请求对象
+            prompt_override: 可选的 prompt 覆盖
+            memory_summary: 可选的用户记忆汇总，用于注入个性化信息
             
         Returns:
             ChatResponse: 包含 AI 生成的夸夸文案
@@ -69,6 +90,10 @@ class ChatService:
             prompt_template = get_chat_prompt(input_type)
             system_prompt = prompt_template["system"]
         
+        # 注入记忆上下文
+        if memory_summary:
+            system_prompt = self._inject_memory(system_prompt, memory_summary)
+        
         # 根据输入类型调用不同的生成方法
         if input_type == "text_only":
             content = await self._generate_text_only(system_prompt, request.text)
@@ -85,6 +110,55 @@ class ChatService:
             has_image=has_image,
             created_at=datetime.now()
         )
+    
+    def _inject_memory(self, system_prompt: str, memory: MemorySummary) -> str:
+        """
+        将用户记忆注入到 system prompt
+        
+        Args:
+            system_prompt: 原始 system prompt
+            memory: 用户记忆汇总
+            
+        Returns:
+            str: 注入记忆后的 system prompt
+        """
+        parts = []
+        
+        # 偏好场景和风格
+        if memory.prefer_scene:
+            parts.append(f"- 偏好场景：{memory.prefer_scene}")
+        if memory.prefer_style:
+            parts.append(f"- 喜欢风格：{memory.prefer_style}")
+        
+        # 用户标签
+        if memory.user_tags:
+            tags_str = ", ".join(memory.user_tags[:5])
+            parts.append(f"- 用户标签：{tags_str}")
+        
+        # 最近情绪
+        if memory.last_emotion:
+            parts.append(f"- 当前情绪：{memory.last_emotion}")
+        
+        # 最近对话（用于保持上下文连贯）
+        if memory.recent_messages:
+            msg_list = []
+            for msg in memory.recent_messages[-3:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")[:50]
+                msg_list.append(f"{role}: {content}")
+            if msg_list:
+                parts.append(f"- 最近对话：{' | '.join(msg_list)}")
+        
+        # 高光里程碑（用于夸得真诚）
+        if memory.milestones:
+            milestones_str = "; ".join(memory.milestones[:3])
+            parts.append(f"- 高光时刻：{milestones_str}")
+        
+        if not parts:
+            return system_prompt
+        
+        memory_block = "\n".join(parts)
+        return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
     
     async def _generate_text_only(self, system_prompt: str, text: str) -> str:
         """

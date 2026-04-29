@@ -14,10 +14,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
 from app.models.database import get_session
-from app.models.schemas import ApiResponse, ChatRequest, ChatResponse
+from app.models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary
 from app.providers.qwen import QwenProvider
 from app.services.ab_test_service import ABTestService
 from app.services.chat_service import ChatService
+from app.services.memory_service import MemoryService
 from app.services.prompt_service import PromptService
 
 
@@ -47,18 +48,31 @@ async def chat(
     service: Annotated[ChatService, Depends(get_chat_service)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default",
+    session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> ApiResponse[ChatResponse]:
     """
     交互式夸夸接口（请求-响应模式）
 
     接收用户发送的文字和/或图片，生成个性化的夸赞文案。
+    支持记忆注入，根据用户偏好生成千人千面的夸夸。
     """
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
     )
-
-    response = await service.chat(request, prompt_override=prompt_override)
+    
+    # 获取用户记忆汇总
+    memory_summary = await _get_user_memory(user_id, session_id, session)
+    
+    response = await service.chat(
+        request, 
+        prompt_override=prompt_override,
+        memory_summary=memory_summary
+    )
+    
+    # 更新会话记录（异步，不阻塞响应）
+    _ = _update_session_after_chat(user_id, session_id, request, response)
+    
     return ApiResponse(data=response)
 
 
@@ -68,6 +82,7 @@ async def chat_stream(
     service: Annotated[ChatService, Depends(get_chat_service)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user_id: Annotated[str, Query(description="用户标识")] = "default",
+    session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> EventSourceResponse:
     """
     交互式夸夸流式接口（SSE 模式）
@@ -93,6 +108,9 @@ async def chat_stream(
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
     )
+    
+    # 获取用户记忆汇总
+    memory_summary = await _get_user_memory(user_id, session_id, session)
 
     if prompt_override:
         system_prompt = prompt_override["system"]
@@ -105,6 +123,10 @@ async def chat_stream(
             # 回退到硬编码模板
             prompt_template = get_chat_prompt(input_type)
             system_prompt = prompt_template["system"]
+    
+    # 注入记忆上下文
+    if memory_summary:
+        system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
 
     async def event_generator():
         try:
@@ -165,3 +187,144 @@ async def _try_get_db_prompt(
         )
     except Exception:
         return None
+
+
+async def _get_user_memory(
+    user_id: str, session_id: str, session: AsyncSession
+) -> Optional[MemorySummary]:
+    """
+    获取用户记忆汇总
+    
+    Args:
+        user_id: 用户ID
+        session_id: 会话ID（用于获取短期会话上下文）
+        session: 数据库会话
+        
+    Returns:
+        MemorySummary 或 None（如果获取失败）
+    """
+    try:
+        memory_service = MemoryService(session)
+        return await memory_service.get_memory_summary(user_id, session_id or None)
+    except Exception:
+        return None
+
+
+async def _update_session_after_chat(
+    user_id: str, 
+    session_id: str, 
+    request: ChatRequest, 
+    response: ChatResponse
+) -> None:
+    """
+    聊天结束后更新会话记录
+    
+    将用户的消息和 AI 的回复都记录到会话中，
+    用于后续的上下文追踪和记忆提取。
+    
+    Args:
+        user_id: 用户ID
+        session_id: 会话ID
+        request: 用户请求
+        response: AI 响应
+    """
+    if not session_id:
+        return
+    
+    try:
+        memory_service = MemoryService(session)
+        
+        # 获取或创建会话
+        session_obj = await memory_service.get_or_create_session(
+            user_id=user_id,
+            session_id=session_id,
+            scene=request.scene
+        )
+        
+        # 解析现有消息
+        import json
+        messages = []
+        if session_obj.messages:
+            try:
+                messages = json.loads(session_obj.messages)
+            except json.JSONDecodeError:
+                messages = []
+        
+        # 添加用户消息
+        if request.text:
+            messages.append({
+                "role": "user",
+                "content": request.text,
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # 添加 AI 回复
+        messages.append({
+            "role": "assistant",
+            "content": response.content,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        # 保留最近 10 条消息（避免过长）
+        messages = messages[-10:]
+        
+        # 更新会话
+        session_obj.messages = json.dumps(messages, ensure_ascii=False)
+        await session.commit()
+        
+        # 提取并添加里程碑（如果检测到成就）
+        if request.text:
+            await memory_service.extract_and_add_milestone(user_id, request.text)
+    except Exception:
+        # 静默失败，不影响主流程
+        pass
+
+
+def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
+    """
+    将用户记忆注入到 system prompt（用于流式接口）
+    
+    Args:
+        system_prompt: 原始 system prompt
+        memory: 用户记忆汇总
+        
+    Returns:
+        str: 注入记忆后的 system prompt
+    """
+    parts = []
+    
+    # 偏好场景和风格
+    if memory.prefer_scene:
+        parts.append(f"- 偏好场景：{memory.prefer_scene}")
+    if memory.prefer_style:
+        parts.append(f"- 喜欢风格：{memory.prefer_style}")
+    
+    # 用户标签
+    if memory.user_tags:
+        tags_str = ", ".join(memory.user_tags[:5])
+        parts.append(f"- 用户标签：{tags_str}")
+    
+    # 最近情绪
+    if memory.last_emotion:
+        parts.append(f"- 当前情绪：{memory.last_emotion}")
+    
+    # 最近对话（用于保持上下文连贯）
+    if memory.recent_messages:
+        msg_list = []
+        for msg in memory.recent_messages[-3:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")[:50]
+            msg_list.append(f"{role}: {content}")
+        if msg_list:
+            parts.append(f"- 最近对话：{' | '.join(msg_list)}")
+    
+    # 高光里程碑（用于夸得真诚）
+    if memory.milestones:
+        milestones_str = "; ".join(memory.milestones[:3])
+        parts.append(f"- 高光时刻：{milestones_str}")
+    
+    if not parts:
+        return system_prompt
+    
+    memory_block = "\n".join(parts)
+    return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
