@@ -3,16 +3,21 @@
 
 提供基于文字和图片的多模态夸夸生成 REST API 接口
 支持普通请求-响应和 SSE 流式输出两种模式
+
+请求头说明：
+- X-User-ID: 用户标识（必填，用于数据隔离和个性化服务）
+- X-Trace-ID: 请求追踪 ID（可选，用于日志关联）
 """
 
 import json
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
+from app.core.logging import get_logger
 from app.models.database import get_session
 from app.models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary
 from app.providers.qwen import QwenProvider
@@ -20,6 +25,9 @@ from app.services.ab_test_service import ABTestService
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.prompt_service import PromptService
+
+# 获取日志记录器
+logger = get_logger(__name__)
 
 
 # 创建路由实例
@@ -42,12 +50,22 @@ def get_chat_service() -> ChatService:
     )
 
 
+async def get_user_id_from_header(
+    x_user_id: Annotated[
+        Optional[str],
+        Header(description="用户标识，用于数据隔离和个性化服务")
+    ] = "anonymous"
+) -> str:
+    """从请求头获取用户 ID"""
+    return x_user_id or "anonymous"
+
+
 @router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
     request: ChatRequest,
     service: Annotated[ChatService, Depends(get_chat_service)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Query(description="用户标识")] = "default",
+    user_id: Annotated[str, Depends(get_user_id_from_header)],
     session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> ApiResponse[ChatResponse]:
     """
@@ -55,7 +73,13 @@ async def chat(
 
     接收用户发送的文字和/或图片，生成个性化的夸赞文案。
     支持记忆注入，根据用户偏好生成千人千面的夸夸。
+    
+    请求头：
+        X-User-ID: 用户标识（必填）
+        X-Trace-ID: 请求追踪 ID（可选）
     """
+    logger.info(f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
+    
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
@@ -73,6 +97,8 @@ async def chat(
     # 更新会话记录（异步，不阻塞响应）
     _ = _update_session_after_chat(user_id, session_id, request, response)
     
+    logger.info(f"夸夸生成完成 | user_id={user_id} | response_length={len(response.content)}")
+    
     return ApiResponse(data=response)
 
 
@@ -81,7 +107,7 @@ async def chat_stream(
     request: ChatRequest,
     service: Annotated[ChatService, Depends(get_chat_service)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Query(description="用户标识")] = "default",
+    user_id: Annotated[str, Depends(get_user_id_from_header)],
     session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> EventSourceResponse:
     """
@@ -89,6 +115,10 @@ async def chat_stream(
 
     接收用户发送的文字，以 Server-Sent Events 方式流式输出夸赞文案。
     前端可使用 EventSource 或 fetch + ReadableStream 接收。
+    
+    请求头：
+        X-User-ID: 用户标识（必填）
+        X-Trace-ID: 请求追踪 ID（可选）
     """
     from datetime import datetime
     from app.prompts.templates import get_chat_prompt

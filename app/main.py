@@ -1,6 +1,11 @@
 """
 夸夸Agent API 主入口
 FastAPI 应用初始化与配置
+
+微服务架构设计：
+- 配置通过环境变量和 .env 文件管理
+- 统一的日志系统，支持 trace_id 追踪
+- 标准化的请求中间件
 """
 
 from collections.abc import AsyncGenerator
@@ -12,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import admin, chat, favorites, memory, quotes
 from app.config import get_settings
 from app.core.exceptions import register_exception_handlers
+from app.core.logging import register_logging_middleware, get_logger
 from app.models.database import init_db, close_db
 
 
@@ -29,11 +35,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await close_db()
 
 
+# 获取配置
+settings = get_settings()
+
 # 创建 FastAPI 应用实例
 app = FastAPI(
-    title="夸夸 Agent API",
+    title=f"{settings.service_name} API",
     version="0.1.0",
-    description="一个基于 AI 的夸夸生成服务",
+    description=f"{settings.service_name} - 基于 AI 的夸夸生成服务",
     lifespan=lifespan,
     docs_url="/docs",      # Swagger UI (默认)
     redoc_url="/redoc",    # ReDoc (备选方案)
@@ -48,6 +57,9 @@ app.add_middleware(
     allow_methods=["*"],  # 允许所有 HTTP 方法
     allow_headers=["*"],  # 允许所有请求头
 )
+
+# 注册日志中间件（必须在路由注册之前）
+register_logging_middleware(app)
 
 # 注册全局异常处理器
 register_exception_handlers(app)
@@ -70,18 +82,22 @@ async def health_check() -> dict[str, str]:
     """
     return {
         "status": "healthy",
-        "service": "夸夸Agent API",
-        "version": "0.1.0"
+        "service": settings.service_name,
+        "version": "0.1.0",
+        "environment": settings.environment
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时的初始化操作"""
+    logger = get_logger("app.startup")
+    logger.info(f"服务启动 | {settings.service_name} | 环境: {settings.environment}")
+    logger.info(f"日志配置 | 级别: {settings.log_level} | 文件: {settings.log_file_enabled}")
 
-    settings = get_settings()
-    uvicorn.run(
-        "app.main:app",
-        host=settings.app_host,
-        port=settings.app_port,
-        reload=True  # 开发模式启用热重载
-    )
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时的清理操作"""
+    logger = get_logger("app.shutdown")
+    logger.info(f"服务关闭 | {settings.service_name}")

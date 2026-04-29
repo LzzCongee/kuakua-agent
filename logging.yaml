@@ -1,0 +1,86 @@
+# 日志配置
+# 遵循微服务架构最佳实践：配置与代码分离
+
+version: 1
+disable_existing_loggers: false
+
+# 日志格式化
+formatters:
+  # 标准格式：包含时间、级别、trace_id、模块名、消息
+  standard:
+    format: "%(asctime)s | %(levelname)-8s | %(trace_id)s | %(name)s | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  
+  # 详细格式：包含文件名、行号（用于调试）
+  detailed:
+    format: "%(asctime)s | %(levelname)-8s | %(trace_id)s | %(name)s:%(lineno)d | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  
+  # JSON 格式（用于日志收集系统如 ELK）
+  json:
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    format: "%(asctime)s %(name)s %(levelname)s %(trace_id)s %(message)s"
+
+# 日志处理器
+handlers:
+  # 控制台输出
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: standard
+    stream: ext://sys.stdout
+  
+  # 按日期分割的文件处理器
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: INFO
+    formatter: standard
+    # 日志目录（相对于项目根目录）
+    filename: logs/kuakua-agent.log
+    # 按天分割，保留 30 天
+    when: midnight
+    interval: 1
+    backupCount: 30
+    encoding: utf-8
+  
+  # 错误日志单独文件
+  error_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: logs/kuakua-agent-error.log
+    when: midnight
+    interval: 1
+    backupCount: 30
+    encoding: utf-8
+
+# 日志记录器
+loggers:
+  # 应用日志
+  app:
+    level: INFO
+    handlers: [console, file, error_file]
+    propagate: false
+  
+  # 第三方库日志（降低级别避免过多输出）
+  uvicorn:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+  
+  # SQLAlchemy 日志（仅在 DEBUG 级别开启）
+  sqlalchemy.engine:
+    level: WARNING
+    handlers: [file]
+    propagate: false
+
+# 根日志记录器
+root:
+  level: INFO
+  handlers: [console, file]
+
+# 服务元数据（用于日志追踪）
+service:
+  name: kuakua-agent
+  version: "0.1.0"
+  environment: development
