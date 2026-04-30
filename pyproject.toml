@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "sse-starlette>=1.6,<2.0",
     "uvicorn==0.30.6",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
