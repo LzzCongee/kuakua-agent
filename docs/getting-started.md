@@ -152,13 +152,13 @@ APP_PORT=8000
 启用热重载，代码修改后自动重启：
 
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 ### 生产模式
 
 ```bash
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
 ```
 
 ### 验证启动
@@ -185,7 +185,7 @@ curl http://localhost:8000/health
 
 启动服务后，访问自动生成的 API 文档：
 
-**http://localhost:8000/docs**
+**http://127.0.0.1:8080/docs**
 
 ### 接口概览
 
