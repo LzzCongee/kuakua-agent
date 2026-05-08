@@ -77,9 +77,12 @@ class Settings(BaseSettings):
     )
 
     # ==================== API 配置 ====================
-    
-    # 魔搭社区 API Key
-    modelscope_api_key: str = Field(..., min_length=1, description="魔搭社区 API Key")
+
+    # 魔搭社区 API Key（必填，需要从 https://modelscope.cn/services/api 申请）
+    modelscope_api_key: str = Field(
+        default="your_api_key_here",
+        description="魔搭社区 API Key"
+    )
 
     # AI 服务基础 URL，默认为魔搭社区 OpenAI 兼容接口
     ai_base_url: str = Field(

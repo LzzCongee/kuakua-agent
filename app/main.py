@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import admin, chat, favorites, memory, quotes
 from app.config import get_settings
@@ -70,6 +71,15 @@ app.include_router(favorites.router)
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(memory.router)
+
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+
+
+@app.get("/", tags=["首页"])
+async def index():
+    """首页 - 重定向到测试界面"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/test.html")
 
 
 @app.get("/health", tags=["健康检查"])
