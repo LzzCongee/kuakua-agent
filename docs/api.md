@@ -296,7 +296,7 @@ GET /health
 ## 启动服务
 
 ```bash
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
-访问 **http://localhost:8000/docs** 查看交互式 Swagger API 文档。
+访问 **http://127.0.0.1:8080/docs** 查看交互式 Swagger API 文档。

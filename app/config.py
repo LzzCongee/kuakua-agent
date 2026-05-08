@@ -114,6 +114,32 @@ class Settings(BaseSettings):
         description="管理后台 API Key，用于 X-Admin-Key header 认证"
     )
 
+    # ==================== CloudBase 配置 ====================
+    
+    # 是否使用 CloudBase 作为数据服务
+    use_cloudbase: bool = Field(
+        default=True,
+        description="是否使用 CloudBase NoSQL 数据库"
+    )
+    
+    # CloudBase 环境 ID
+    cloudbase_env_id: str = Field(
+        default="dev-kuakua-d1gmvqyrha28477fe",
+        description="CloudBase 环境 ID"
+    )
+    
+    # CloudBase API 密钥 ID
+    cloudbase_secret_id: str = Field(
+        default="",
+        description="CloudBase API 密钥 ID"
+    )
+    
+    # CloudBase API 密钥 Key
+    cloudbase_secret_key: str = Field(
+        default="",
+        description="CloudBase API 密钥 Key"
+    )
+
     @property
     def log_dir_path(self) -> Path:
         """
