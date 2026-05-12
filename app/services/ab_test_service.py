@@ -5,14 +5,13 @@ AB 测试管理服务模块
 """
 
 import hashlib
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import ABTest, Prompt
-from app.models.schemas import ABTestCreate, ABTestResponse, ABTestUpdate
-from app.core.exceptions import DatabaseException, NotFoundException, ValidationException
+from ..models.models import ABTest, Prompt
+from ..models.schemas import ABTestCreate, ABTestResponse, ABTestUpdate
+from ..core.exceptions import DatabaseException, NotFoundException, ValidationException
 
 
 class ABTestService:
@@ -79,13 +78,13 @@ class ABTestService:
                 raise NotFoundException(f"AB 测试不存在: {ab_test_id}")
 
             if data.name is not None:
-                ab_test.name = data.name
+                ab_test.name = data.name  # type: ignore
             if data.traffic_ratio is not None:
-                ab_test.traffic_ratio = data.traffic_ratio
+                ab_test.traffic_ratio = data.traffic_ratio  # type: ignore
             if data.status is not None:
                 if data.status not in ("running", "stopped"):
                     raise ValidationException("status 只能是 running 或 stopped")
-                ab_test.status = data.status
+                ab_test.status = data.status  # type: ignore
 
             await session.flush()
             return self._to_response(ab_test)
@@ -102,10 +101,10 @@ class ABTestService:
             stmt = select(ABTest).where(ABTest.id == ab_test_id)
             result = await session.execute(stmt)
             ab_test = result.scalar_one_or_none()
-            if not ab_test:
+            if not ab_test:  # type: ignore[reportGeneralTypeIssues]
                 raise NotFoundException(f"AB 测试不存在: {ab_test_id}")
 
-            ab_test.status = "stopped"
+            ab_test.status = "stopped"  # type: ignore[reportAttributeAccessIssue]
             await session.flush()
         except NotFoundException:
             raise
@@ -117,7 +116,7 @@ class ABTestService:
         scene: str,
         user_id: str,
         session: AsyncSession,
-    ) -> Optional[dict[str, str]]:
+    ) -> dict[str, str] | None:
         """
         根据 AB 测试配置为用户分配 prompt
         
@@ -140,12 +139,12 @@ class ABTestService:
             result = await session.execute(stmt)
             ab_test = result.scalar_one_or_none()
 
-            if not ab_test:
+            if not ab_test:  # type: ignore[reportGeneralTypeIssues]
                 return None
 
             # 根据 user_id 哈希决定走哪组
             hash_val = int(hashlib.md5(user_id.encode()).hexdigest(), 16) % 100
-            use_group_b = hash_val < ab_test.traffic_ratio * 100
+            use_group_b = hash_val < float(ab_test.traffic_ratio) * 100  # type: ignore[reportUnknownMemberType]
 
             prompt_id = ab_test.prompt_b_id if use_group_b else ab_test.prompt_a_id
 
@@ -154,14 +153,14 @@ class ABTestService:
             prompt_result = await session.execute(prompt_stmt)
             prompt = prompt_result.scalar_one_or_none()
 
-            if not prompt:
+            if not prompt:  # type: ignore[reportGeneralTypeIssues]
                 return None
 
             return {
-                "system": prompt.system_prompt,
-                "user": prompt.user_prompt,
+                "system": prompt.system_prompt,  # type: ignore[reportUnknownMemberType]
+                "user": prompt.user_prompt,  # type: ignore[reportUnknownMemberType]
                 "ab_group": "b" if use_group_b else "a",
-                "ab_test_id": ab_test.id,
+                "ab_test_id": ab_test.id,  # type: ignore[reportUnknownMemberType]
             }
         except Exception:
             return None
@@ -178,12 +177,12 @@ class ABTestService:
     def _to_response(self, row: ABTest) -> ABTestResponse:
         """ORM 对象转 Pydantic 响应"""
         return ABTestResponse(
-            id=row.id,
-            name=row.name,
-            scene=row.scene,
-            prompt_a_id=row.prompt_a_id,
-            prompt_b_id=row.prompt_b_id,
-            traffic_ratio=row.traffic_ratio,
-            status=row.status,
-            created_at=row.created_at,
+            id=int(row.id),  # type: ignore[reportArgumentType]
+            name=str(row.name),  # type: ignore[reportArgumentType]
+            scene=str(row.scene),  # type: ignore[reportArgumentType]
+            prompt_a_id=int(row.prompt_a_id),  # type: ignore[reportArgumentType]
+            prompt_b_id=int(row.prompt_b_id),  # type: ignore[reportArgumentType]
+            traffic_ratio=float(row.traffic_ratio),  # type: ignore[reportUnknownMemberType]
+            status=str(row.status),  # type: ignore[reportArgumentType]
+            created_at=row.created_at,  # type: ignore[reportArgumentType]
         )

@@ -5,7 +5,7 @@ Pydantic 模型定义模块
 """
 
 from datetime import datetime
-from typing import Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -201,12 +201,12 @@ class SessionCreate(BaseModel):
     session_id: str = Field(..., min_length=1, description="会话ID")
     user_id: str = Field(default="default", description="用户ID")
     scene: str = Field(default="general", description="场景标签")
-    messages: list[dict] = Field(default_factory=list, description="消息列表")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
 
 
 class SessionUpdate(BaseModel):
     """更新会话请求模型"""
-    messages: list[dict] = Field(..., description="消息列表")
+    messages: list[dict[str, Any]] = Field(..., description="消息列表")
     scene: Optional[str] = Field(default=None, description="场景标签")
 
 
@@ -221,14 +221,14 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., description="会话ID")
     user_id: str = Field(..., description="用户ID")
     scene: str = Field(..., description="场景标签")
-    messages: list[dict] = Field(default_factory=list, description="消息列表")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: Optional[datetime] = Field(default=None, description="更新时间")
 
 
 class UserProfileUpdate(BaseModel):
     """更新用户偏好请求模型"""
-    prefer_scene: Optional[str] = Field(default=None, description="喜欢的场景")
+    prefer_scene: Optional[list[str]] = Field(default=None, description="喜欢的场景")
     prefer_style: Optional[str] = Field(default=None, description="喜欢的夸夸风格")
     user_tags: Optional[list[str]] = Field(default=None, description="用户标签列表")
     avoid_words: Optional[list[str]] = Field(default=None, description="避免的词汇")
@@ -283,7 +283,8 @@ class MemorySummary(BaseModel):
     prefer_scene: Optional[str] = Field(default=None, description="偏好场景")
     prefer_style: Optional[str] = Field(default=None, description="偏好风格")
     user_tags: list[str] = Field(default_factory=list, description="用户标签")
-    recent_messages: list[dict] = Field(default_factory=list, description="最近消息")
+    avoid_words: list[str] = Field(default_factory=list, description="避免词汇")
+    recent_messages: list[dict[str, Any]] = Field(default_factory=list, description="最近消息")
     milestones: list[str] = Field(default_factory=list, description="高光里程碑")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
     semantic_memories: list[str] = Field(default_factory=list, description="语义记忆（supermemory）")

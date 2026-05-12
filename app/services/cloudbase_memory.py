@@ -14,8 +14,8 @@ import time
 import hmac
 import hashlib
 import requests
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 
 class CloudBaseDBClient:
@@ -29,9 +29,8 @@ class CloudBaseDBClient:
         # 使用腾讯云 API v3 的标准端点（不区分地域）
         self.base_url = "https://tcb.tencentcloudapi.com"
     
-    def _sign(self, params: dict) -> dict:
+    def _sign(self, params: dict[str, Any]) -> dict[str, str]:
         """生成腾讯云 API v3 签名"""
-        import datetime as dt
         
         # 构建规范请求字符串
         http_request_method = "POST"
@@ -53,7 +52,7 @@ class CloudBaseDBClient:
         # 构建待签名字符串
         algorithm = "TC3-HMAC-SHA256"
         request_timestamp = int(time.time())
-        date = dt.datetime.utcfromtimestamp(request_timestamp).strftime("%Y-%m-%d")
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         credential_scope = f"{date}/tcb/tc3_request"
         hashed_canonical_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
         string_to_sign = f"{algorithm}\n{request_timestamp}\n{credential_scope}\n{hashed_canonical_request}"
@@ -84,7 +83,7 @@ class CloudBaseDBClient:
         
         return headers
     
-    def call_api(self, action: str, params: dict) -> dict:
+    def call_api(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """调用 CloudBase API"""
         payload = {
             "Action": action,
@@ -134,19 +133,20 @@ class CloudBaseMemoryService:
                 return docs[0]
         
         # 创建新会话
+        now = datetime.now(timezone.utc).isoformat()
         session_data = {
             "session_id": session_id,
             "user_id": user_id,
             "scene": scene,
             "messages": [],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "created_at": now,
+            "updated_at": now
         }
         
         self._insert("sessions", json.dumps(session_data))
         return session_data
     
-    async def get_session(self, session_id: str) -> Optional[dict]:
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
         """获取会话"""
         query = {"session_id": session_id}
         result = self._query("sessions", query)
@@ -157,14 +157,14 @@ class CloudBaseMemoryService:
         
         return None
     
-    async def update_session(self, session_id: str, messages: list[dict]) -> Optional[dict]:
+    async def update_session(self, session_id: str, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
         """更新会话消息"""
         session = await self.get_session(session_id)
         if session:
             update_data = {
                 "$set": {
                     "messages": messages,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": datetime.now(timezone.utc).isoformat()
                 }
             }
             
@@ -175,7 +175,7 @@ class CloudBaseMemoryService:
         
         return None
     
-    async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[dict]:
+    async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取用户最近的会话"""
         query = {"user_id": user_id}
         result = self._query("sessions", query)
@@ -190,7 +190,7 @@ class CloudBaseMemoryService:
     
     async def cleanup_expired_sessions(self, hours: int = 2) -> int:
         """清理过期会话"""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         query = {"created_at": {"$lt": cutoff.isoformat()}}
         
         result = self._query("sessions", query)
@@ -206,7 +206,7 @@ class CloudBaseMemoryService:
     
     # ==================== 用户偏好记忆 ====================
     
-    async def get_user_profile(self, user_id: str) -> Optional[dict]:
+    async def get_user_profile(self, user_id: str) -> dict[str, Any] | None:
         """获取用户偏好"""
         query = {"user_id": user_id}
         result = self._query("user_profiles", query)
@@ -217,11 +217,12 @@ class CloudBaseMemoryService:
         
         return None
     
-    async def get_or_create_profile(self, user_id: str) -> dict:
+    async def get_or_create_profile(self, user_id: str) -> dict[str, Any]:
         """获取或创建用户偏好"""
         profile = await self.get_user_profile(user_id)
         
         if not profile:
+            now = datetime.now(timezone.utc).isoformat()
             profile_data = {
                 "user_id": user_id,
                 "prefer_scene": None,
@@ -231,9 +232,9 @@ class CloudBaseMemoryService:
                 "last_emotion": None,
                 "conversation_count": 0,
                 "favorite_count": 0,
-                "last_active": datetime.utcnow().isoformat(),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "last_active": now,
+                "created_at": now,
+                "updated_at": now
             }
             
             self._insert("user_profiles", json.dumps(profile_data))
@@ -241,11 +242,11 @@ class CloudBaseMemoryService:
         
         return profile
     
-    async def update_user_profile(self, user_id: str, data: dict) -> dict:
+    async def update_user_profile(self, user_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """更新用户偏好"""
         profile = await self.get_or_create_profile(user_id)
         
-        update_data = {"$set": {"updated_at": datetime.utcnow().isoformat()}}
+        update_data: dict[str, Any] = {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
         
         for key, value in data.items():
             if value is not None:
@@ -259,13 +260,13 @@ class CloudBaseMemoryService:
         
         return await self.get_user_profile(user_id)
     
-    async def increment_favorite_count(self, user_id: str) -> dict:
+    async def increment_favorite_count(self, user_id: str) -> dict[str, Any]:
         """增加收藏次数"""
         profile = await self.get_or_create_profile(user_id)
         
         update_data = {
             "$inc": {"favorite_count": 1},
-            "$set": {"last_active": datetime.utcnow().isoformat()}
+            "$set": {"last_active": datetime.now(timezone.utc).isoformat()}
         }
         
         query = {"user_id": user_id}
@@ -273,15 +274,16 @@ class CloudBaseMemoryService:
         
         return await self.get_user_profile(user_id)
     
-    async def update_prefer_scene(self, user_id: str, scene: str) -> dict:
+    async def update_prefer_scene(self, user_id: str, scene: str) -> dict[str, Any]:
         """更新用户偏好场景（根据使用频率自动调整）"""
         profile = await self.get_or_create_profile(user_id)
         
+        now = datetime.now(timezone.utc).isoformat()
         update_data = {
             "$set": {
                 "prefer_scene": scene,
-                "last_active": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "last_active": now,
+                "updated_at": now
             }
         }
         
@@ -292,7 +294,7 @@ class CloudBaseMemoryService:
     
     # ==================== 高光里程碑记忆 ====================
     
-    async def get_milestones(self, user_id: str, limit: int = 10) -> list[dict]:
+    async def get_milestones(self, user_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """获取用户的高光里程碑"""
         query = {"user_id": user_id}
         result = self._query("milestones", query)
@@ -307,22 +309,23 @@ class CloudBaseMemoryService:
     
     async def add_milestone(
         self, user_id: str, content: str, source: str = "user_input", importance: int = 1
-    ) -> dict:
+    ) -> dict[str, Any]:
         """添加高光里程碑"""
+        now = datetime.now(timezone.utc).isoformat()
         milestone_data = {
             "user_id": user_id,
             "content": content,
             "source": source,
             "importance": importance,
             "is_achieved": False,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "created_at": now,
+            "updated_at": now
         }
         
         self._insert("milestones", json.dumps(milestone_data))
         return milestone_data
     
-    async def extract_and_add_milestone(self, user_id: str, content: str) -> Optional[dict]:
+    async def extract_and_add_milestone(self, user_id: str, content: str) -> dict[str, Any] | None:
         """
         从对话内容中提取并添加里程碑
         
@@ -355,7 +358,7 @@ class CloudBaseMemoryService:
     
     # ==================== 记忆汇总 ====================
     
-    async def get_memory_summary(self, user_id: str, session_id: Optional[str] = None) -> dict:
+    async def get_memory_summary(self, user_id: str, session_id: str | None = None) -> dict[str, Any]:
         """获取用户记忆汇总"""
         profile = await self.get_user_profile(user_id)
         
@@ -377,7 +380,7 @@ class CloudBaseMemoryService:
             "last_emotion": profile.get("last_emotion") if profile else None
         }
     
-    def format_memory_for_prompt(self, memory: dict) -> str:
+    def format_memory_for_prompt(self, memory: dict[str, Any]) -> str:
         """格式化记忆为 Prompt 注入字符串"""
         parts = []
         
@@ -408,7 +411,7 @@ class CloudBaseMemoryService:
     
     # ==================== 内部方法 ====================
     
-    def _query(self, collection: str, query: dict) -> dict:
+    def _query(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """查询文档"""
         params = {
             "CollectionName": collection,
@@ -416,7 +419,7 @@ class CloudBaseMemoryService:
         }
         return self.client.call_api("QueryDocument", params)
     
-    def _insert(self, collection: str, documents: str) -> dict:
+    def _insert(self, collection: str, documents: str) -> dict[str, Any]:
         """插入文档"""
         params = {
             "CollectionName": collection,
@@ -424,7 +427,7 @@ class CloudBaseMemoryService:
         }
         return self.client.call_api("InsertDocument", params)
     
-    def _update(self, collection: str, query: dict, update: str) -> dict:
+    def _update(self, collection: str, query: dict[str, Any], update: str) -> dict[str, Any]:
         """更新文档"""
         params = {
             "CollectionName": collection,
@@ -433,7 +436,7 @@ class CloudBaseMemoryService:
         }
         return self.client.call_api("UpdateDocument", params)
     
-    def _delete(self, collection: str, query: dict) -> dict:
+    def _delete(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """删除文档"""
         params = {
             "CollectionName": collection,

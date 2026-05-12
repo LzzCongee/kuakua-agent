@@ -5,13 +5,12 @@
 支持记忆注入，实现个性化夸夸
 """
 
-import json
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
-from app.models.schemas import ChatRequest, ChatResponse, MemorySummary
-from app.providers.base import BaseAIProvider
-from app.prompts.templates import get_chat_prompt
+from ..models.schemas import ChatRequest, ChatResponse, MemorySummary
+from ..providers.base import BaseAIProvider
+from ..prompts.templates import get_chat_prompt
 
 
 class ChatService:
@@ -28,11 +27,16 @@ class ChatService:
         memory_service: 可选的 MemoryService 实例，用于获取用户记忆
     """
     
+    # 类属性类型注解
+    provider: BaseAIProvider
+    vision_model: str
+    memory_service: object | None
+    
     def __init__(
         self, 
         provider: BaseAIProvider, 
         vision_model: str,
-        memory_service: Optional[object] = None
+        memory_service: object | None = None
     ):
         """
         初始化 ChatService
@@ -96,6 +100,8 @@ class ChatService:
         
         # 根据输入类型调用不同的生成方法
         if input_type == "text_only":
+            # 根据逻辑，text_only 模式时 text 一定不为空
+            assert request.text is not None
             content = await self._generate_text_only(system_prompt, request.text)
         else:
             content = await self._generate_multimodal(
@@ -122,7 +128,7 @@ class ChatService:
         Returns:
             str: 注入记忆后的 system prompt
         """
-        parts = []
+        parts: list[str] = []
         
         # 偏好场景和风格
         if memory.prefer_scene:
@@ -141,10 +147,10 @@ class ChatService:
         
         # 最近对话（用于保持上下文连贯）
         if memory.recent_messages:
-            msg_list = []
+            msg_list: list[str] = []
             for msg in memory.recent_messages[-3:]:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")[:50]
+                role = str(msg.get("role", "user"))  # type: ignore[reportAny]
+                content = str(msg.get("content", ""))[:50]  # type: ignore[reportAny]
                 msg_list.append(f"{role}: {content}")
             if msg_list:
                 parts.append(f"- 最近对话：{' | '.join(msg_list)}")
@@ -197,7 +203,7 @@ class ChatService:
             str: AI 生成的文本内容
         """
         # 构建消息列表
-        messages = []
+        messages: list[dict[str, object]] = []
         
         # 添加 system message
         messages.append({
@@ -206,7 +212,7 @@ class ChatService:
         })
         
         # 构建 user message content（支持多模态）
-        user_content = []
+        user_content: list[dict[str, object]] = []
         
         # 添加文字内容（如果有）
         if text:

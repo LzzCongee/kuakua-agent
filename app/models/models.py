@@ -4,12 +4,17 @@ SQLAlchemy ORM 模型定义
 定义数据库表结构，支持 PostgreSQL 和 SQLite
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.models.database import Base
+
+
+def _utc_now() -> datetime:
+    """返回带时区信息的 UTC 时间"""
+    return datetime.now(timezone.utc)
 
 
 class Favorite(Base):
@@ -20,7 +25,7 @@ class Favorite(Base):
     user_id = Column(String(100), nullable=False, default="default", index=True)
     content = Column(Text, nullable=False)
     scene = Column(String(50), nullable=False, default="general")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
 
 
 class Prompt(Base):
@@ -34,7 +39,7 @@ class Prompt(Base):
     input_type = Column(String(20), nullable=False, default="text_only")
     version = Column(Integer, nullable=False, default=1)
     is_active = Column(Boolean, nullable=False, default=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
     updated_by = Column(String(100), nullable=False, default="system")
 
 
@@ -49,7 +54,7 @@ class ABTest(Base):
     prompt_b_id = Column(Integer, ForeignKey("prompts.id"), nullable=True)
     traffic_ratio = Column(Float, nullable=False, default=0.5)
     status = Column(String(20), nullable=False, default="running")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
 
     # 关系
     prompt_a = relationship("Prompt", foreign_keys=[prompt_a_id])
@@ -70,8 +75,8 @@ class Session(Base):
     user_id = Column(String(100), nullable=False, default="default", index=True)
     scene = Column(String(50), nullable=False, default="general")
     messages = Column(Text, nullable=False, default="[]")  # JSON格式存储消息列表
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
 class UserProfile(Base):
@@ -92,9 +97,9 @@ class UserProfile(Base):
     last_emotion = Column(String(50), nullable=True)  # 最近一次情绪状态
     conversation_count = Column(Integer, nullable=False, default=0)  # 对话次数累计
     favorite_count = Column(Integer, nullable=False, default=0)  # 收藏次数累计
-    last_active = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_active = Column(DateTime, default=_utc_now)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
 class Milestone(Base):
@@ -112,5 +117,7 @@ class Milestone(Base):
     source = Column(String(50), nullable=True)  # 来源：user_input / favorite / manual
     importance = Column(Integer, nullable=False, default=1)  # 重要性：1-5
     is_achieved = Column(Boolean, nullable=False, default=False)  # 是否已达成
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+

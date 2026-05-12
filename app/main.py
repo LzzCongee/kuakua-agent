@@ -77,8 +77,6 @@ app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(memory.router)
 
-app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
-
 
 @app.get("/", tags=["首页"])
 async def index():
@@ -101,6 +99,9 @@ async def health_check() -> dict[str, str]:
         "version": "0.1.0",
         "environment": settings.environment
     }
+
+
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 
 
 @app.on_event("startup")
