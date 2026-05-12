@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
 from app.core.logging import get_logger
+from app.core.mcp_client import mcp_client
 from app.models.database import get_session
 from app.models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary
 from app.providers.qwen import QwenProvider
@@ -234,7 +235,7 @@ async def _get_user_memory(
         MemorySummary 或 None（如果获取失败）
     """
     try:
-        memory_service = MemoryService(session)
+        memory_service = MemoryService(session, mcp_client)
         return await memory_service.get_memory_summary(user_id, session_id or None)
     except Exception:
         return None
@@ -305,6 +306,16 @@ async def _update_session_after_chat(
         # 提取并添加里程碑（如果检测到成就）
         if request.text:
             await memory_service.extract_and_add_milestone(user_id, request.text)
+
+        # 保存到 supermemory 语义记忆（降级逻辑已内置于 MCPClient.call()）
+        memory_service_sm = MemoryService(session, mcp_client)
+        await memory_service_sm.save_chat_to_supermemory(
+            user_id=user_id,
+            user_message=request.text or "",
+            ai_response=response.content,
+            scene=request.scene,
+            emotion=None,
+        )
     except Exception:
         # 静默失败，不影响主流程
         pass
@@ -352,7 +363,12 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     if memory.milestones:
         milestones_str = "; ".join(memory.milestones[:3])
         parts.append(f"- 高光时刻：{milestones_str}")
-    
+
+    # 语义记忆（来自 supermemory）
+    if memory.semantic_memories:
+        semantic_str = "; ".join(memory.semantic_memories[:2])
+        parts.append(f"- 相关记忆：{semantic_str}")
+
     if not parts:
         return system_prompt
     

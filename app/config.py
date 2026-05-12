@@ -8,7 +8,7 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -112,6 +112,38 @@ class Settings(BaseSettings):
     admin_api_key: str = Field(
         default="changeme",
         description="管理后台 API Key，用于 X-Admin-Key header 认证"
+    )
+
+    # ==================== supermemory MCP 配置 ====================
+
+    # supermemory MCP Server SSE 地址
+    supermemory_url: str = Field(
+        default="http://106.55.151.27/sse",
+        description="supermemory MCP Server SSE 地址"
+    )
+
+    # SSE 连接附加请求头（如 token 鉴权）
+    supermemory_headers: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="SSE 连接附加请求头（如 token 鉴权）"
+    )
+
+    # 是否启用 supermemory MCP
+    supermemory_enabled: bool = Field(
+        default=True,
+        description="是否启用 supermemory MCP"
+    )
+
+    # 单次 MCP 工具调用超时（秒）
+    supermemory_timeout: float = Field(
+        default=5.0,
+        description="单次 MCP 工具调用超时（秒）"
+    )
+
+    # 语义搜索返回数量
+    supermemory_top_k: int = Field(
+        default=3,
+        description="语义搜索返回数量"
     )
 
     @property

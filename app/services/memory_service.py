@@ -12,7 +12,7 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,14 +36,24 @@ class MemoryService:
     所有方法均支持异步操作。
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, mcp: Any = None):
         """
         初始化 MemoryService
-        
+
         Args:
             session: 数据库会话（由 FastAPI 依赖注入或 get_db() 获取）
+            mcp: MCP Client 实例（可选，默认使用全局单例）
         """
         self.session = session
+        self._mcp = mcp
+
+    @property
+    def mcp(self) -> Any:
+        """获取 MCP Client（延迟导入避免循环依赖）"""
+        if self._mcp is not None:
+            return self._mcp
+        from app.core.mcp_client import mcp_client
+        return mcp_client
 
     # ==================== 短期会话记忆 ====================
 
@@ -315,6 +325,86 @@ class MemoryService:
         
         return None
 
+    # ==================== supermemory 语义记忆 ====================
+
+    async def _get_semantic_memories(self, user_id: str) -> List[str]:
+        """
+        基于用户画像构建查询，通过 MCP 调用 search_memory
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            List[str]: 语义相关记忆列表
+        """
+        profile = await self.get_user_profile(user_id)
+        if not profile:
+            return []
+
+        # 构建语义查询：结合用户标签 + 偏好场景 + 最近情绪
+        query_parts: List[str] = []
+        if profile.user_tags:
+            try:
+                tags = json.loads(profile.user_tags)
+                query_parts.extend(tags[:3])
+            except json.JSONDecodeError:
+                pass
+        if profile.prefer_scene:
+            query_parts.append(profile.prefer_scene)
+        if profile.last_emotion:
+            query_parts.append(profile.last_emotion)
+
+        if not query_parts:
+            return []
+
+        query = " ".join(query_parts)
+
+        # 通过 MCP SDK 调用 search_memory 工具
+        result = await self.mcp.call(
+            "search_memory",
+            query=query,
+            user_id=user_id,
+            top_k=3,
+        )
+
+        if not result:
+            return []
+
+        # 解析返回结果
+        return [item.get("content", "") for item in result.get("results", [])]
+
+    async def save_chat_to_supermemory(
+        self,
+        user_id: str,
+        user_message: str,
+        ai_response: str,
+        scene: str = "general",
+        emotion: Optional[str] = None,
+    ) -> None:
+        """
+        通过 MCP 调用 add_memory 将对话保存到语义记忆
+
+        Args:
+            user_id: 用户ID
+            user_message: 用户消息
+            ai_response: AI 回复
+            scene: 场景标签
+            emotion: 情绪标签
+        """
+        content = f"用户说：{user_message}\nAI回复：{ai_response}"
+
+        await self.mcp.call(
+            "add_memory",
+            content=content,
+            user_id=user_id,
+            metadata={
+                "type": "chat",
+                "scene": scene,
+                "emotion": emotion,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+
     # ==================== 记忆汇总（用于 Prompt 注入）====================
 
     async def get_memory_summary(self, user_id: str, session_id: Optional[str] = None) -> MemorySummary:
@@ -360,14 +450,18 @@ class MemoryService:
         # 获取高光里程碑
         milestones = await self.get_milestones(user_id, limit=5)
         milestone_contents = [m.content for m in milestones]
-        
+
+        # 获取语义记忆（supermemory）
+        semantic_memories = await self._get_semantic_memories(user_id)
+
         return MemorySummary(
             prefer_scene=profile.prefer_scene if profile else None,
             prefer_style=profile.prefer_style if profile else None,
             user_tags=user_tags,
-            recent_messages=recent_messages[-3:] if recent_messages else [],  # 只取最近3条
+            recent_messages=recent_messages[-3:] if recent_messages else [],
             milestones=milestone_contents,
-            last_emotion=profile.last_emotion if profile else None
+            last_emotion=profile.last_emotion if profile else None,
+            semantic_memories=semantic_memories,
         )
 
     def format_memory_for_prompt(self, memory: MemorySummary) -> str:
@@ -400,7 +494,11 @@ class MemoryService:
         
         if memory.milestones:
             parts.append(f"高光时刻：{'; '.join(memory.milestones[:3])}")
-        
+
+        # 语义记忆（来自 supermemory）
+        if memory.semantic_memories:
+            parts.append(f"相关记忆：{'; '.join(memory.semantic_memories[:2])}")
+
         if not parts:
             return ""
         

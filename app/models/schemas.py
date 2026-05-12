@@ -286,3 +286,4 @@ class MemorySummary(BaseModel):
     recent_messages: list[dict] = Field(default_factory=list, description="最近消息")
     milestones: list[str] = Field(default_factory=list, description="高光里程碑")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
+    semantic_memories: list[str] = Field(default_factory=list, description="语义记忆（supermemory）")

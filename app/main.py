@@ -18,6 +18,7 @@ from app.api import admin, chat, favorites, memory, quotes
 from app.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import register_logging_middleware, get_logger
+from app.core.mcp_client import mcp_client
 from app.models.database import init_db, close_db
 
 
@@ -25,13 +26,17 @@ from app.models.database import init_db, close_db
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     应用生命周期管理
-    
-    在应用启动时初始化数据库，关闭时执行清理操作。
+
+    在应用启动时初始化数据库和 MCP 连接，关闭时执行清理操作。
     """
     # 启动时执行
     await init_db()
+    await mcp_client.connect()  # 连接 supermemory MCP Server
+
     yield
-    # 关闭时执行：关闭数据库连接池
+
+    # 关闭时执行：断开 MCP 连接，关闭数据库连接池
+    await mcp_client.disconnect()
     await close_db()
 
 
