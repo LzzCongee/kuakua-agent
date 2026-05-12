@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>夸夸 Agent 测试界面</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 20px; text-align: center; }
+        h2 { color: #555; font-size: 18px; margin: 20px 0 10px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: 500; margin-bottom: 5px; color: #555; }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        textarea { resize: vertical; min-height: 80px; }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #4a90d9;
+            box-shadow: 0 0 0 2px rgba(74,144,217,0.2);
+        }
+        
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; }
+        
+        button {
+            background: #4a90d9;
+            color: #fff;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #3a7bc8; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.secondary { background: #6c757d; }
+        button.secondary:hover { background: #5a6268; }
+        
+        .chat-messages {
+            border: 1px solid #eee;
+            border-radius: 4px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            background: #fafafa;
+        }
+        .message {
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .message.user {
+            background: #e3f2fd;
+            margin-left: 40px;
+        }
+        .message.assistant {
+            background: #fff;
+            border: 1px solid #ddd;
+            margin-right: 40px;
+        }
+        .message .label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        
+        .memory-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #fafafa;
+        }
+        .memory-card h4 { color: #333; margin-bottom: 8px; }
+        .tag {
+            display: inline-block;
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin: 2px;
+        }
+        
+        .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 15px; }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            color: #666;
+        }
+        .tab.active {
+            border-bottom-color: #4a90d9;
+            color: #4a90d9;
+            font-weight: 500;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #4a90d9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .status { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>夸夸 Agent 测试界面</h1>
+        
+        <!-- 配置面板 -->
+        <div class="panel">
+            <h2>用户配置</h2>
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label>用户名 (User ID)</label>
+                        <input type="text" id="userId" placeholder="输入用户名" value="test_user">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label>会话 ID (Session ID)</label>
+                        <input type="text" id="sessionId" placeholder="留空自动生成">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label>场景</label>
+                        <select id="scene">
+                            <option value="general">通用</option>
+                            <option value="work">工作</option>
+                            <option value="study">学习</option>
+                            <option value="life">生活</option>
+                            <option value="love">情感</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <button onclick="initSession()">初始化会话</button>
+        </div>
+        
+        <!-- 对话面板 -->
+        <div class="panel">
+            <h2>对话测试</h2>
+            <div class="form-group">
+                <label>输入内容</label>
+                <textarea id="chatInput" placeholder="输入你想被夸的内容..."></textarea>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <button onclick="sendChat()" id="sendBtn">发送消息</button>
+                    <button class="secondary" onclick="sendStream()">流式输出</button>
+                </div>
+            </div>
+            
+            <h3 style="margin: 20px 0 10px;">对话历史</h3>
+            <div class="chat-messages" id="chatMessages">
+                <div style="color: #888; text-align: center; padding: 40px;">
+                    对话内容将显示在这里
+                </div>
+            </div>
+        </div>
+        
+        <!-- ��忆管理面板 -->
+        <div class="panel">
+            <h2>记忆管理测试</h2>
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('profile')">用户偏好</div>
+                <div class="tab" onclick="switchTab('summary')">记忆汇总</div>
+                <div class="tab" onclick="switchTab('milestones')">里程碑</div>
+                <div class="tab" onclick="switchTab('sessions')">会话历史</div>
+            </div>
+            
+            <div class="tab-content active" id="tab-profile">
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>偏好场景</label>
+                            <select id="preferScene">
+                                <option value="">请选择</option>
+                                <option value="general">通用</option>
+                                <option value="work">工作</option>
+                                <option value="study">学习</option>
+                                <option value="life">生活</option>
+                                <option value="love">情感</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>偏好风格</label>
+                            <input type="text" id="preferStyle" placeholder="如：文艺、幽默、真诚">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>用户标签</label>
+                            <input type="text" id="userTags" placeholder="用逗号分隔，如：程序员,跑步">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>避免词汇</label>
+                            <input type="text" id="avoidWords" placeholder="用逗号分隔">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>最近情绪</label>
+                            <input type="text" id="lastEmotion" placeholder="如：开心、焦虑">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <button onclick="getProfile()">查询偏好</button>
+                    <button onclick="updateProfile()">更新偏好</button>
+                </div>
+                <div id="profileResult" style="margin-top: 15px;"></div>
+            </div>
+            
+            <div class="tab-content" id="tab-summary">
+                <button onclick="getSummary()">查询记忆汇总</button>
+                <div id="summaryResult" style="margin-top: 15px;"></div>
+            </div>
+            
+            <div class="tab-content" id="tab-milestones">
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>里程碑内容</label>
+                            <input type="text" id="milestoneContent" placeholder="输入成就内容">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>重要性 (1-5)</label>
+                            <select id="milestoneImportance">
+                                <option value="1">1 - 低</option>
+                                <option value="2" selected>2 - 中</option>
+                                <option value="3">3 - 较高</option>
+                                <option value="4">4 - 高</option>
+                                <option value="5">5 - 很高</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <button onclick="getMilestones()">查询里程碑</button>
+                    <button onclick="addMilestone()">添加里程碑</button>
+                    <button onclick="extractMilestone()">从输入提取</button>
+                </div>
+                <div id="milestonesResult" style="margin-top: 15px;"></div>
+            </div>
+            
+            <div class="tab-content" id="tab-sessions">
+                <div class="row">
+                    <button onclick="getSessions()">查询会话历史</button>
+                </div>
+                <div id="sessionsResult" style="margin-top: 15px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let currentUserId = 'test_user';
+        
+        function getUserId() {
+            return document.getElementById('userId').value || 'anonymous';
+        }
+        
+        function getSessionId() {
+            let sid = document.getElementById('sessionId').value;
+            if (!sid) {
+                sid = 'session_' + Date.now();
+                document.getElementById('sessionId').value = sid;
+            }
+            return sid;
+        }
+        
+        function showStatus(elemId, message, type) {
+            const el = document.getElementById(elemId);
+            el.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+        
+        function showError(elemId, error) {
+            showStatus(elemId, `错误: ${error}`, 'error');
+        }
+        
+        // 初始化会话
+        function initSession() {
+            currentUserId = getUserId();
+            getSessionId();
+            showStatus('profileResult', `会话已初始化 | User: ${currentUserId} | Session: ${document.getElementById('sessionId').value}`, 'info');
+        }
+        
+        // 切换标签页
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+        
+        // ========== 对话功能 ==========
+        async function sendChat() {
+            const userId = getUserId();
+            const sessionId = getSessionId();
+            const text = document.getElementById('chatInput').value.trim();
+            const scene = document.getElementById('scene').value;
+            
+            if (!text) {
+                alert('请输入内容');
+                return;
+            }
+            
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>发送中...';
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ text, scene })
+                });
+                
+                const data = await res.json();
+                
+                if (data.code === 0) {
+                    appendMessage('user', text);
+                    appendMessage('assistant', data.data.content);
+                    document.getElementById('chatInput').value = '';
+                } else {
+                    alert(`错误: ${data.message}`);
+                }
+            } catch (e) {
+                alert(`请求失败: ${e.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '发送消息';
+            }
+        }
+        
+        async function sendStream() {
+            const userId = getUserId();
+            const sessionId = getSessionId();
+            const text = document.getElementById('chatInput').value.trim();
+            const scene = document.getElementById('scene').value;
+            
+            if (!text) {
+                alert('请输入内容');
+                return;
+            }
+            
+            appendMessage('user', text);
+            appendMessage('assistant', '...');
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/chat/stream?session_id=${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ text, scene })
+                });
+                
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let content = '';
+                let lastMsg = document.querySelector('.message.assistant:last-child .content');
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const text = decoder.decode(value);
+                    const lines = text.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.content) {
+                                    content += data.content;
+                                    if (lastMsg) lastMsg.textContent = content;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+            } catch (e) {
+                alert(`请求失败: ${e.message}`);
+            }
+        }
+        
+        function appendMessage(role, content) {
+            const container = document.getElementById('chatMessages');
+            const empty = container.querySelector('div[style*="text-align: center"]');
+            if (empty) empty.remove();
+            
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = `<div class="label">${role === 'user' ? '你' : '夸夸 Agent'}</div><div class="content">${content}</div>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        // ========== 用户偏好 ==========
+        async function getProfile() {
+            const userId = getUserId();
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/profile/${userId}`);
+                const data = await res.json();
+                
+                if (data.code === 0 && data.data) {
+                    const p = data.data;
+                    let html = '<div class="memory-card"><h4>用户偏好</h4>';
+                    html += `<p><strong>用户ID:</strong> ${p.user_id}</p>`;
+                    html += `<p><strong>偏好场景:</strong> ${p.prefer_scene || '-'}</p>`;
+                    html += `<p><strong>偏好风格:</strong> ${p.prefer_style || '-'}</p>`;
+                    html += `<p><strong>用户标签:</strong> ${(p.user_tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</p>`;
+                    html += `<p><strong>避免词汇:</strong> ${(p.avoid_words || []).join(', ') || '-'}</p>`;
+                    html += `<p><strong>最近情绪:</strong> ${p.last_emotion || '-'}</p>`;
+                    html += `<p><strong>对话次数:</strong> ${p.conversation_count}</p>`;
+                    html += `<p><strong>收藏次数:</strong> ${p.favorite_count}</p>`;
+                    html += '</div>';
+                    document.getElementById('profileResult').innerHTML = html;
+                } else {
+                    showStatus('profileResult', '用户偏好不存在', 'info');
+                }
+            } catch (e) {
+                showError('profileResult', e.message);
+            }
+        }
+        
+        async function updateProfile() {
+            const userId = getUserId();
+            const preferScene = document.getElementById('preferScene').value || null;
+            const preferStyle = document.getElementById('preferStyle').value || null;
+            const userTags = document.getElementById('userTags').value.split(',').map(t => t.trim()).filter(t => t);
+            const avoidWords = document.getElementById('avoidWords').value.split(',').map(t => t.trim()).filter(t => t);
+            const lastEmotion = document.getElementById('lastEmotion').value || null;
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/profile/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prefer_scene: preferScene,
+                        prefer_style: preferStyle,
+                        user_tags: userTags.length ? userTags : null,
+                        avoid_words: avoidWords.length ? avoidWords : null,
+                        last_emotion: lastEmotion
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.code === 0) {
+                    showStatus('profileResult', '偏好更新成功', 'success');
+                } else {
+                    showError('profileResult', data.message);
+                }
+            } catch (e) {
+                showError('profileResult', e.message);
+            }
+        }
+        
+        // ========== 记忆汇总 ==========
+        async function getSummary() {
+            const userId = getUserId();
+            const sessionId = document.getElementById('sessionId').value || null;
+            
+            try {
+                let url = `${API_BASE}/api/memory/summary/${userId}`;
+                if (sessionId) url += `?session_id=${sessionId}`;
+                
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                if (data.code === 0) {
+                    const s = data.data;
+                    let html = '<div class="memory-card"><h4>记忆汇总</h4>';
+                    html += `<p><strong>偏好场景:</strong> ${s.prefer_scene || '-'}</p>`;
+                    html += `<p><strong>偏好风格:</strong> ${s.prefer_style || '-'}</p>`;
+                    html += `<p><strong>用户标签:</strong> ${(s.user_tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</p>`;
+                    html += `<p><strong>最近情绪:</strong> ${s.last_emotion || '-'}</p>`;
+                    html += '</div>';
+                    
+                    if (s.milestones && s.milestones.length) {
+                        html += '<div class="memory-card"><h4>高光里程碑</h4>';
+                        s.milestones.forEach(m => {
+                            html += `<p>• ${m}</p>`;
+                        });
+                        html += '</div>';
+                    }
+                    
+                    if (s.recent_messages && s.recent_messages.length) {
+                        html += '<div class="memory-card"><h4>最近消息</h4>';
+                        s.recent_messages.forEach(m => {
+                            html += `<p><strong>${m.role}:</strong> ${m.content.substring(0, 100)}</p>`;
+                        });
+                        html += '</div>';
+                    }
+                    
+                    document.getElementById('summaryResult').innerHTML = html;
+                }
+            } catch (e) {
+                showError('summaryResult', e.message);
+            }
+        }
+        
+        // ========== 里程碑 ==========
+        async function getMilestones() {
+            const userId = getUserId();
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/milestones/${userId}`);
+                const data = await res.json();
+                
+                if (data.code === 0 && data.data && data.data.length) {
+                    let html = '<div class="memory-card"><h4>高光里程碑</h4>';
+                    data.data.forEach(m => {
+                        html += `<p>• [重要性: ${m.importance}] ${m.content}</p>`;
+                    });
+                    html += '</div>';
+                    document.getElementById('milestonesResult').innerHTML = html;
+                } else {
+                    showStatus('milestonesResult', '暂无里程碑', 'info');
+                }
+            } catch (e) {
+                showError('milestonesResult', e.message);
+            }
+        }
+        
+        async function addMilestone() {
+            const userId = getUserId();
+            const content = document.getElementById('milestoneContent').value.trim();
+            const importance = parseInt(document.getElementById('milestoneImportance').value);
+            
+            if (!content) {
+                alert('请输入里程碑内容');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/milestones`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        content,
+                        source: 'manual',
+                        importance
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.code === 0) {
+                    showStatus('milestonesResult', '里程碑添加成功', 'success');
+                } else {
+                    showError('milestonesResult', data.message);
+                }
+            } catch (e) {
+                showError('milestonesResult', e.message);
+            }
+        }
+        
+        async function extractMilestone() {
+            const userId = getUserId();
+            const content = document.getElementById('chatInput').value.trim();
+            
+            if (!content) {
+                alert('请先在输入框输入内容');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/milestones/extract?user_id=${userId}&content=${encodeURIComponent(content)}`, {
+                    method: 'POST'
+                });
+                
+                const data = await res.json();
+                if (data.code === 0 && data.data) {
+                    showStatus('milestonesResult', `提取成功: ${data.data.content}`, 'success');
+                } else {
+                    showStatus('milestonesResult', data.message || '未检测到成就内容', 'info');
+                }
+            } catch (e) {
+                showError('milestonesResult', e.message);
+            }
+        }
+        
+        // ========== 会话历史 ==========
+        async function getSessions() {
+            const userId = getUserId();
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/sessions/${userId}?limit=10`);
+                const data = await res.json();
+                
+                if (data.code === 0 && data.data && data.data.length) {
+                    let html = '<div class="memory-card"><h4>会话历史</h4>';
+                    data.data.forEach(s => {
+                        html += `<p><strong>Session ID:</strong> ${s.session_id}</p>`;
+                        html += `<p><strong>场景:</strong> ${s.scene}</p>`;
+                        html += `<p><strong>消息数:</strong> ${s.messages ? s.messages.length : 0}</p>`;
+                        html += `<p><strong>创建时间:</strong> ${s.created_at}</p>`;
+                        html += '<hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;">';
+                    });
+                    html += '</div>';
+                    document.getElementById('sessionsResult').innerHTML = html;
+                } else {
+                    showStatus('sessionsResult', '暂无会话历史', 'info');
+                }
+            } catch (e) {
+                showError('sessionsResult', e.message);
+            }
+        }
+        
+        // 初始化
+        initSession();
+    </script>
+</body>
+</html>
