@@ -2,8 +2,8 @@
 记忆管理 API 路由
 
 提供记忆相关的 RESTful 接口：
-- 用户偏好管理（GET/PUT /api/memory/profile/{user_id}）
-- 会话管理（GET/POST /api/memory/sessions/）
+- 用户偏好管理（GET/PUT /api/memory/profile）
+- 会话管理（GET/POST /api/memory/sessions）
 - 里程碑管理（GET/POST /api/memory/milestones/）
 """
 
@@ -16,18 +16,19 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.dependencies import HeaderUserID
 from ..core.logging import get_logger
 from ..models.database import get_session
 from ..models.schemas import (
     ApiResponse,
-    UserProfileUpdate,
-    UserProfileResponse,
+    MemorySummary,
+    MilestoneCreate,
+    MilestoneResponse,
     SessionCreate,
     SessionResponse,
     SessionUpdate,
-    MilestoneCreate,
-    MilestoneResponse,
-    MemorySummary,
+    UserProfileResponse,
+    UserProfileUpdate,
 )
 from ..services.memory_service import MemoryService
 
@@ -103,18 +104,15 @@ def _profile_to_response(
 # ==================== 用户偏好相关接口 ====================
 
 
-@router.get("/profile/{user_id}", response_model=ApiResponse[UserProfileResponse])
+@router.get("/profile", response_model=ApiResponse[UserProfileResponse])
 async def get_user_profile(
-    user_id: str,
     service: MemoryServiceDep,
     _session: AdminSessionDep,
+    user_id: HeaderUserID,
 ) -> ApiResponse[UserProfileResponse]:
     """
     获取用户偏好记录
     
-    Args:
-        user_id: 用户ID
-        
     Returns:
         用户偏好信息，如果不存在则返回空数据结构
     """
@@ -149,18 +147,17 @@ async def get_user_profile(
     )
 
 
-@router.put("/profile/{user_id}", response_model=ApiResponse[UserProfileResponse])
+@router.put("/profile", response_model=ApiResponse[UserProfileResponse])
 async def update_user_profile(
-    user_id: str,
     data: UserProfileUpdate,
     service: MemoryServiceDep,
     _session: AdminSessionDep,
+    user_id: HeaderUserID,
 ) -> ApiResponse[UserProfileResponse]:
     """
     更新用户偏好
     
     Args:
-        user_id: 用户ID
         data: 偏好更新数据
         
     Returns:
@@ -186,17 +183,16 @@ async def update_user_profile(
     )
 
 
-@router.get("/summary/{user_id}", response_model=ApiResponse[MemorySummary])
+@router.get("/summary", response_model=ApiResponse[MemorySummary])
 async def get_memory_summary(
-    user_id: str,
     service: MemoryServiceDep,
     session_id: Annotated[str | None, Query(description="可选的当前会话ID")] = None,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[MemorySummary]:
     """
     获取用户记忆汇总（用于注入 Prompt）
     
     Args:
-        user_id: 用户ID
         session_id: 可选的当前会话ID
         
     Returns:
@@ -211,17 +207,16 @@ async def get_memory_summary(
 # ==================== 会话相关接口 ====================
 
 
-@router.get("/sessions/{user_id}", response_model=ApiResponse[list[SessionResponse]])
+@router.get("/sessions", response_model=ApiResponse[list[SessionResponse]])
 async def get_user_sessions(
-    user_id: str,
     service: MemoryServiceDep,
     limit: int = 5,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[list[SessionResponse]]:
     """
     获取用户的会话历史
     
     Args:
-        user_id: 用户ID
         limit: 返回数量限制
         
     Returns:
@@ -251,6 +246,7 @@ async def get_user_sessions(
 async def create_or_update_session(
     data: SessionCreate,
     service: MemoryServiceDep,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[SessionResponse]:
     """
     创建或更新会话
@@ -262,7 +258,7 @@ async def create_or_update_session(
         创建/更新的会话信息
     """
     session = await service.get_or_create_session(
-        user_id=data.user_id,
+        user_id=user_id or data.user_id,
         session_id=data.session_id,
         scene=data.scene
     )
@@ -271,6 +267,8 @@ async def create_or_update_session(
     if data.messages:
         session.messages = json.dumps(data.messages, ensure_ascii=False)
         await service.session.flush()
+    
+    logger.info(f"会话创建/更新完成 | user_id={user_id} | session_id={data.session_id}")
     
     return ApiResponse(
         data=SessionResponse(
@@ -301,14 +299,19 @@ async def update_session(
     Returns:
         更新后的会话信息
     """
+    logger.info(f"更新会话 | session_id={session_id} | messages_count={len(data.messages) if data.messages else 0}")
+    
     session = await service.update_session(session_id, data.messages)
     
     if not session:
+        logger.warning(f"会话不存在 | session_id={session_id}")
         raise HTTPException(status_code=404, detail="会话不存在")
     
     if data.scene:
         session.scene = data.scene
         await service.session.flush()
+    
+    logger.info(f"会话更新完成 | session_id={session_id}")
     
     return ApiResponse(
         data=SessionResponse(
@@ -358,17 +361,16 @@ async def get_session_by_id(
 # ==================== 里程碑相关接口 ====================
 
 
-@router.get("/milestones/{user_id}", response_model=ApiResponse[list[MilestoneResponse]])
+@router.get("/milestones", response_model=ApiResponse[list[MilestoneResponse]])
 async def get_user_milestones(
-    user_id: str,
     service: MemoryServiceDep,
     limit: int = 10,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[list[MilestoneResponse]]:
     """
     获取用户的高光里程碑
     
     Args:
-        user_id: 用户ID
         limit: 返回数量限制
         
     Returns:
@@ -396,6 +398,7 @@ async def get_user_milestones(
 async def create_milestone(
     data: MilestoneCreate,
     service: MemoryServiceDep,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[MilestoneResponse]:
     """
     添加高光里程碑
@@ -406,7 +409,14 @@ async def create_milestone(
     Returns:
         创建的里程碑信息
     """
-    milestone = await service.add_milestone(data)
+    milestone = await service.add_milestone(
+        MilestoneCreate(
+            user_id=user_id or data.user_id,
+            content=data.content,
+            source=data.source,
+            importance=data.importance,
+        )
+    )
     
     return ApiResponse(
         data=MilestoneResponse(
@@ -423,15 +433,14 @@ async def create_milestone(
 
 @router.post("/milestones/extract", response_model=ApiResponse[MilestoneResponse | None])
 async def extract_milestone(
-    user_id: str,
     content: str,
     service: MemoryServiceDep,
+    user_id: HeaderUserID = None,
 ) -> ApiResponse[MilestoneResponse | None]:
     """
     从对话内容中提取并添加里程碑
     
     Args:
-        user_id: 用户ID
         content: 对话内容
         
     Returns:

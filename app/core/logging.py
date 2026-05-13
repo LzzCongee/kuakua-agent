@@ -242,7 +242,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         
         # 获取或生成 trace_id
         trace_id = request.headers.get("X-Trace-ID") or str(uuid.uuid4())[:8]
-        user_id = request.headers.get("X-User-ID", "anonymous")
+        
+        # 优先从请求头获取 user_id，其次从 URL 路径参数尝试提取
+        user_id = request.headers.get("X-User-ID")
+        if not user_id:
+            # 尝试从常见路径参数中提取 user_id
+            path_user = request.path_params.get("user_id") or request.path_params.get("userId")
+            user_id = path_user if path_user else "anonymous"
         
         # 设置到线程本地存储
         set_trace_id(trace_id)

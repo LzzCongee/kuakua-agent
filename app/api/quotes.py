@@ -10,19 +10,19 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..core.dependencies import get_user_id_from_header, HeaderUserID
+from ..core.dependencies import HeaderUserID
 from ..core.logging import get_logger
 from ..models.database import get_session
 from ..models.schemas import ApiResponse, QuoteResponse
 from ..providers.qwen import QwenProvider
-from ..services.quote_service import QuoteService
 from ..services.memory_service import MemoryService
+from ..services.quote_service import QuoteService
 
 # 获取日志记录器
 logger = get_logger(__name__)

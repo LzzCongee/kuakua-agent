@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import time
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -26,13 +27,19 @@ from ..core.dependencies import HeaderUserID
 from ..core.logging import get_logger
 from ..core.mcp_client import mcp_client
 from ..models.database import get_session
-from ..models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary, PromptContent
+from ..models.schemas import (
+    ApiResponse,
+    ChatRequest,
+    ChatResponse,
+    MemorySummary,
+    PromptContent,
+)
+from ..prompts.templates import get_chat_prompt
 from ..providers.qwen import QwenProvider
 from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
 from ..services.memory_service import MemoryService
 from ..services.prompt_service import PromptService
-from ..prompts.templates import get_chat_prompt
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -82,6 +89,9 @@ async def chat(
     """
     logger.info(f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
     
+    if not session_id:
+        session_id = f"session_{int(time.time() * 1000)}"
+    
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
@@ -124,6 +134,9 @@ async def chat_stream(
         X-Trace-ID: 请求追踪 ID（可选）
     """
     logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
+    
+    if not session_id:
+        session_id = f"session_{int(time.time() * 1000)}"
     
     # 判断输入类型
     input_type: Literal["text_only", "image_only", "mixed"]
@@ -191,6 +204,10 @@ async def chat_stream(
                 ),
             }
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
+            
+            response = ChatResponse(content=full_content, scene=request.scene)
+            task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
+            task.add_done_callback(_handle_task_exception)
         except Exception as e:
             logger.error(f"流式生成异常 | user_id={user_id} | error={str(e)}")
             yield {
