@@ -86,3 +86,29 @@ jobs:
             APP_PORT=8001 docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build app
 
             echo "Staging environment deployed on port 8001"
+
+  # 部署到 CloudBase 云托管
+  deploy-cloudbase:
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install CloudBase CLI
+        run: npm i -g @cloudbase/cli
+
+      - name: Login CloudBase
+        run: tcb login --apiKeyId ${{ secrets.TCB_SECRET_ID }} --apiKey ${{ secrets.TCB_SECRET_KEY }}
+
+      - name: Deploy to CloudBase
+        run: |
+          chmod +x scripts/deploy-cloudbase.sh
+          bash scripts/deploy-cloudbase.sh --watch
+        env:
+          TCB_ENV_ID: ${{ secrets.TCB_ENV_ID }}

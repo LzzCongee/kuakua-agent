@@ -237,6 +237,25 @@ uv pip install -r requirements.txt \
 | `SUPERMEMORY_ENABLED` | `true` |
 | `ENVIRONMENT` | `production` |
 
+### 一键部署
+
+代码变更后，使用部署脚本一键重新部署到 CloudBase：
+
+```bash
+# macOS/Linux
+chmod +x scripts/deploy-cloudbase.sh
+bash scripts/deploy-cloudbase.sh
+
+# Windows PowerShell
+.\scripts\deploy-cloudbase.ps1
+
+# 部署并等待完成
+bash scripts/deploy-cloudbase.sh --watch     # macOS/Linux
+.\scripts\deploy-cloudbase.ps1 -Watch        # Windows
+```
+
+> 前置条件：安装 CloudBase CLI (`npm i -g @cloudbase/cli`) 并登录 (`tcb login`)
+
 ### 控制台
 
 - 云托管服务管理: `https://tcb.cloud.tencent.com/dev?envId=dev-kuakua-d1gmvqyrha28477fe#/platform-run`
