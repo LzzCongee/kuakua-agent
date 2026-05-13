@@ -122,6 +122,8 @@ async def chat_stream(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
+    logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
+    
     # 判断输入类型
     has_text = bool(request.text and request.text.strip())
     has_image = bool(request.image and request.image.strip())
@@ -160,6 +162,7 @@ async def chat_stream(
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         try:
             full_content = ""
+            logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
             async for chunk in service.provider.generate_stream(
                 prompt=request.text or "",
                 system_prompt=system_prompt,
@@ -185,7 +188,9 @@ async def chat_stream(
                     ensure_ascii=False,
                 ),
             }
+            logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
         except Exception as e:
+            logger.error(f"流式生成异常 | user_id={user_id} | error={str(e)}")
             yield {
                 "event": "error",
                 "data": json.dumps({"message": str(e)}, ensure_ascii=False),

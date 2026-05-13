@@ -16,6 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.logging import get_logger
 from ..models.database import get_session
 from ..models.schemas import (
     ApiResponse,
@@ -29,6 +30,9 @@ from ..models.schemas import (
     MemorySummary,
 )
 from ..services.memory_service import MemoryService
+
+# 获取日志记录器
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/memory", tags=["记忆管理"])
 
@@ -114,9 +118,11 @@ async def get_user_profile(
     Returns:
         用户偏好信息，如果不存在则返回空数据结构
     """
+    logger.info(f"获取用户偏好 | user_id={user_id}")
     profile = await service.get_user_profile(user_id)
     
     if not profile:
+        logger.info(f"用户偏好不存在 | user_id={user_id}")
         return ApiResponse(
             data=UserProfileResponse(
                 id=0,
@@ -126,6 +132,7 @@ async def get_user_profile(
             )
         )
     
+    logger.info(f"用户偏好获取完成 | user_id={user_id}")
     return ApiResponse(
         data=_profile_to_response(
             id=profile.id,
@@ -159,8 +166,10 @@ async def update_user_profile(
     Returns:
         更新后的用户偏好
     """
+    logger.info(f"更新用户偏好 | user_id={user_id}")
     profile = await service.update_user_profile(user_id, data)
     
+    logger.info(f"用户偏好更新完成 | user_id={user_id}")
     return ApiResponse(
         data=_profile_to_response(
             id=profile.id,
@@ -193,7 +202,9 @@ async def get_memory_summary(
     Returns:
         完整的记忆汇总信息
     """
+    logger.info(f"获取用户记忆汇总 | user_id={user_id} | session_id={session_id}")
     summary = await service.get_memory_summary(user_id, session_id)
+    logger.info(f"用户记忆汇总获取完成 | user_id={user_id}")
     return ApiResponse(data=summary)
 
 
@@ -216,6 +227,7 @@ async def get_user_sessions(
     Returns:
         会话列表
     """
+    logger.info(f"获取用户会话历史 | user_id={user_id} | limit={limit}")
     sessions = await service.get_recent_sessions(user_id, limit)
     
     results = [
@@ -231,6 +243,7 @@ async def get_user_sessions(
         for s in sessions
     ]
     
+    logger.info(f"用户会话历史获取完成 | user_id={user_id} | count={len(results)}")
     return ApiResponse(data=results)
 
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..core.auth import verify_admin_key
+from ..core.logging import get_logger
 from ..models.database import get_session
 from ..models.schemas import (
     ApiResponse,
@@ -29,8 +30,11 @@ from ..providers.qwen import QwenProvider
 from ..services.ab_test_service import ABTestService
 from ..services.prompt_service import PromptService
 
+# 获取日志记录器
+logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/admin", tags=["管理后台"])
+
+router = APIRouter(prefix="/api/admin", tags=["管理后台"]) 
 
 # ---------- 依赖注入类型别名 ----------
 PromptServiceDep = Annotated[PromptService, Depends(lambda: PromptService())]
@@ -49,6 +53,7 @@ async def list_prompts(
     _admin: AdminKeyDep,
 ) -> ApiResponse[list[PromptResponse]]:
     """列出所有 prompt 模板"""
+    logger.info("管理后台 | 列出所有 prompt 模板")
     prompts = await prompt_service.list_prompts(session)
     return ApiResponse(data=prompts)
 
@@ -61,6 +66,7 @@ async def get_prompt(
     _admin: AdminKeyDep,
 ) -> ApiResponse[PromptResponse]:
     """获取指定场景的 prompt"""
+    logger.info(f"管理后台 | 获取 prompt | scene={scene}")
     prompt = await prompt_service.get_prompt(scene, session)
     return ApiResponse(data=prompt)
 
@@ -74,6 +80,7 @@ async def update_prompt(
     _admin: AdminKeyDep,
 ) -> ApiResponse[PromptResponse]:
     """更新 prompt（热更新，无需重启服务）"""
+    logger.info(f"管理后台 | 更新 prompt | scene={scene}")
     prompt = await prompt_service.update_prompt(scene, data, session)
     return ApiResponse(data=prompt)
 
@@ -89,6 +96,7 @@ async def test_prompt(
     _admin: AdminKeyDep,
 ) -> ApiResponse[PromptTestResponse]:
     """测试 prompt 效果"""
+    logger.info(f"管理后台 | 测试 prompt | scene={scene}")
     # 获取当前 prompt
     prompt_resp = await prompt_service.get_prompt(scene, session)
 
@@ -106,6 +114,7 @@ async def test_prompt(
         max_tokens=100,
     )
 
+    logger.info(f"管理后台 | prompt 测试完成 | scene={scene}")
     return ApiResponse(
         data=PromptTestResponse(
             output=output,
@@ -125,6 +134,7 @@ async def list_ab_tests(
     _admin: AdminKeyDep,
 ) -> ApiResponse[list[ABTestResponse]]:
     """列出所有 AB 测试"""
+    logger.info("管理后台 | 列出所有 AB 测试")
     tests = await ab_test_service.list_ab_tests(session)
     return ApiResponse(data=tests)
 
@@ -137,6 +147,7 @@ async def create_ab_test(
     _admin: AdminKeyDep,
 ) -> ApiResponse[ABTestResponse]:
     """创建 AB 测试"""
+    logger.info(f"管理后台 | 创建 AB 测试 | scene={data.scene}")
     ab_test = await ab_test_service.create_ab_test(data, session)
     return ApiResponse(data=ab_test)
 
@@ -150,6 +161,7 @@ async def update_ab_test(
     _admin: AdminKeyDep,
 ) -> ApiResponse[ABTestResponse]:
     """更新 AB 测试配置"""
+    logger.info(f"管理后台 | 更新 AB 测试 | ab_test_id={ab_test_id}")
     ab_test = await ab_test_service.update_ab_test(ab_test_id, data, session)
     return ApiResponse(data=ab_test)
 
@@ -162,5 +174,6 @@ async def stop_ab_test(
     _admin: AdminKeyDep,
 ) -> ApiResponse[None]:
     """结束 AB 测试"""
+    logger.info(f"管理后台 | 停止 AB 测试 | ab_test_id={ab_test_id}")
     await ab_test_service.delete_ab_test(ab_test_id, session)
     return ApiResponse(message="AB 测试已结束")
