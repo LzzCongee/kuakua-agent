@@ -9,7 +9,7 @@
 - 与日志系统集成，支持 trace_id 追踪
 """
 
-from typing import Annotated, Optional
+from typing import Annotated, Optional, TYPE_CHECKING
 
 from fastapi import Depends, Header, Request
 
@@ -103,3 +103,17 @@ def get_optional_user_id(
 
 # 类型别名
 OptionalUserID = Annotated[Optional[str], Depends(get_optional_user_id)]
+
+
+async def get_user_id_from_header(
+    x_user_id: Annotated[
+        Optional[str],
+        Header(description="用户标识，用于数据隔离")
+    ] = "anonymous"
+) -> str:
+    """从请求头获取用户 ID（兼容旧代码的便捷函数）"""
+    return x_user_id or "anonymous"
+
+
+# 类型别名，方便在接口中使用
+HeaderUserID = Annotated[str, Depends(get_user_id_from_header)]

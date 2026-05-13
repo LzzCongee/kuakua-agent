@@ -15,9 +15,20 @@ COPY requirements.txt .
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 创建非 root 用户
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
+
 # 复制应用代码
 COPY app/ ./app/
-COPY .env .
+
+# 将应用目录归属给非 root 用户
+RUN chown -R appuser:appuser /app
+
+# 注意：环境变量通过 CloudBase 云托管的环境变量配置注入，不打包进镜像
+
+# 切换到非 root 用户
+USER appuser
 
 # CloudBase 默认使用 8080 端口
 EXPOSE 8080

@@ -5,8 +5,12 @@ Prompt 模板管理模块
 用于指导 AI 生成符合场景特点的夸赞文案。
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Literal
+
+from ..models.schemas import PromptContent
 
 
 class SceneType(str, Enum):
@@ -103,7 +107,7 @@ USER_PROMPTS: dict[SceneType, str] = {
 }
 
 
-def get_prompt(scene: SceneType) -> dict[str, str]:
+def get_prompt(scene: SceneType) -> PromptContent:
     """
     获取指定场景的 Prompt 模板
     
@@ -185,7 +189,7 @@ MULTIMODAL_SYSTEM_PROMPTS = {
 }
 
 
-def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> dict[str, str]:
+def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> PromptContent:
     """
     获取多模态聊天场景的 Prompt 模板
     

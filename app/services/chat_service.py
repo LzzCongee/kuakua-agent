@@ -5,12 +5,17 @@
 支持记忆注入，实现个性化夸夸
 """
 
-from datetime import datetime
-from typing import Literal
+from __future__ import annotations
 
-from ..models.schemas import ChatRequest, ChatResponse, MemorySummary
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Literal
+
+from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
 from ..providers.base import BaseAIProvider
 from ..prompts.templates import get_chat_prompt
+
+if TYPE_CHECKING:
+    from ..services.memory_service import MemoryService
 
 
 class ChatService:
@@ -30,13 +35,13 @@ class ChatService:
     # 类属性类型注解
     provider: BaseAIProvider
     vision_model: str
-    memory_service: object | None
+    memory_service: MemoryService | None
     
     def __init__(
         self, 
         provider: BaseAIProvider, 
         vision_model: str,
-        memory_service: object | None = None
+        memory_service: MemoryService | None = None
     ):
         """
         初始化 ChatService
@@ -53,7 +58,7 @@ class ChatService:
     async def chat(
         self, 
         request: ChatRequest, 
-        prompt_override: dict[str, str] | None = None,
+        prompt_override: PromptContent | None = None,
         memory_summary: MemorySummary | None = None
     ) -> ChatResponse:
         """
@@ -114,7 +119,7 @@ class ChatService:
             content=content,
             scene=request.scene,
             has_image=has_image,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
     
     def _inject_memory(self, system_prompt: str, memory: MemorySummary) -> str:
@@ -149,8 +154,8 @@ class ChatService:
         if memory.recent_messages:
             msg_list: list[str] = []
             for msg in memory.recent_messages[-3:]:
-                role = str(msg.get("role", "user"))  # type: ignore[reportAny]
-                content = str(msg.get("content", ""))[:50]  # type: ignore[reportAny]
+                role = str(msg.get("role", "user"))
+                content = str(msg.get("content", ""))[:50]
                 msg_list.append(f"{role}: {content}")
             if msg_list:
                 parts.append(f"- 最近对话：{' | '.join(msg_list)}")

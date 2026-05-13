@@ -15,12 +15,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import admin, chat, favorites, memory, quotes
-from app.config import get_settings
-from app.core.exceptions import register_exception_handlers
-from app.core.logging import register_logging_middleware, get_logger
-from app.core.mcp_client import mcp_client
-from app.models.database import init_db, close_db
+from .api import admin, chat, favorites, memory, quotes
+from .config import get_settings
+from .core.exceptions import register_exception_handlers
+from .core.logging import register_logging_middleware, get_logger
+from .core.mcp_client import mcp_client
+from .models.database import init_db, close_db
 
 
 @asynccontextmanager
@@ -31,12 +31,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     在应用启动时初始化数据库和 MCP 连接，关闭时执行清理操作。
     """
     # 启动时执行
+    logger = get_logger("app.startup")
+    logger.info(f"服务启动 | {settings.service_name} | 环境: {settings.environment}")
+    logger.info(f"日志配置 | 级别: {settings.log_level} | 文件: {settings.log_file_enabled}")
+
     await init_db()
     await mcp_client.connect()  # 连接 supermemory MCP Server
 
     yield
 
     # 关闭时执行：断开 MCP 连接，关闭数据库连接池
+    logger.info(f"服务关闭 | {settings.service_name}")
     await mcp_client.disconnect()
     await close_db()
 
@@ -56,10 +61,12 @@ app = FastAPI(
 )
 
 # 配置 CORS 中间件（前后端分离必需）
+# 注意：allow_origins=["*"] 与 allow_credentials=True 不能同时使用
+# 生产环境应配置具体域名
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源，生产环境建议配置具体域名
-    allow_credentials=True,
+    allow_origins=["*"],  # 生产环境建议配置具体域名
+    allow_credentials=False,  # 与 allow_origins=["*"] 不兼容，设为 False
     allow_methods=["*"],  # 允许所有 HTTP 方法
     allow_headers=["*"],  # 允许所有请求头
 )
@@ -82,7 +89,7 @@ app.include_router(memory.router)
 async def index():
     """首页 - 重定向到测试界面"""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/test.html")
+    return RedirectResponse(url="/static/test.html")
 
 
 @app.get("/health", tags=["健康检查"])
@@ -101,19 +108,4 @@ async def health_check() -> dict[str, str]:
     }
 
 
-app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时的初始化操作"""
-    logger = get_logger("app.startup")
-    logger.info(f"服务启动 | {settings.service_name} | 环境: {settings.environment}")
-    logger.info(f"日志配置 | 级别: {settings.log_level} | 文件: {settings.log_file_enabled}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭时的清理操作"""
-    logger = get_logger("app.shutdown")
-    logger.info(f"服务关闭 | {settings.service_name}")
+app.mount("/static", StaticFiles(directory="app/static", html=True), name="static")

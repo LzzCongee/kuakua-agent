@@ -13,9 +13,10 @@ import json
 import time
 import hmac
 import hashlib
-import requests
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+import httpx
 
 
 class CloudBaseDBClient:
@@ -28,6 +29,7 @@ class CloudBaseDBClient:
         self.region = region
         # 使用腾讯云 API v3 的标准端点（不区分地域）
         self.base_url = "https://tcb.tencentcloudapi.com"
+        self._client = httpx.AsyncClient(timeout=30.0)
     
     def _sign(self, params: dict[str, Any]) -> dict[str, str]:
         """生成腾讯云 API v3 签名"""
@@ -83,7 +85,7 @@ class CloudBaseDBClient:
         
         return headers
     
-    def call_api(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def call_api(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """调用 CloudBase API"""
         payload = {
             "Action": action,
@@ -93,11 +95,10 @@ class CloudBaseDBClient:
         
         headers = self._sign(payload)
         
-        response = requests.post(
+        response = await self._client.post(
             self.base_url,
             headers=headers,
             json=payload,
-            timeout=30
         )
         response.raise_for_status()
         
@@ -125,7 +126,7 @@ class CloudBaseMemoryService:
         """获取或创建会话"""
         # 查询现有会话
         query = {"session_id": session_id}
-        result = self._query("sessions", query)
+        result = await self._query("sessions", query)
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
@@ -143,13 +144,13 @@ class CloudBaseMemoryService:
             "updated_at": now
         }
         
-        self._insert("sessions", json.dumps(session_data))
+        await self._insert("sessions", json.dumps(session_data))
         return session_data
     
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         """获取会话"""
         query = {"session_id": session_id}
-        result = self._query("sessions", query)
+        result = await self._query("sessions", query)
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
@@ -169,7 +170,7 @@ class CloudBaseMemoryService:
             }
             
             query = {"session_id": session_id}
-            self._update("sessions", query, json.dumps(update_data))
+            await self._update("sessions", query, json.dumps(update_data))
             
             return await self.get_session(session_id)
         
@@ -178,7 +179,7 @@ class CloudBaseMemoryService:
     async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取用户最近的会话"""
         query = {"user_id": user_id}
-        result = self._query("sessions", query)
+        result = await self._query("sessions", query)
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
@@ -193,13 +194,13 @@ class CloudBaseMemoryService:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         query = {"created_at": {"$lt": cutoff.isoformat()}}
         
-        result = self._query("sessions", query)
+        result = await self._query("sessions", query)
         count = 0
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
             for doc in docs:
-                self._delete("sessions", {"_id": doc["_id"]})
+                await self._delete("sessions", {"_id": doc["_id"]})
                 count += 1
         
         return count
@@ -209,7 +210,7 @@ class CloudBaseMemoryService:
     async def get_user_profile(self, user_id: str) -> dict[str, Any] | None:
         """获取用户偏好"""
         query = {"user_id": user_id}
-        result = self._query("user_profiles", query)
+        result = await self._query("user_profiles", query)
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
@@ -237,7 +238,7 @@ class CloudBaseMemoryService:
                 "updated_at": now
             }
             
-            self._insert("user_profiles", json.dumps(profile_data))
+            await self._insert("user_profiles", json.dumps(profile_data))
             return profile_data
         
         return profile
@@ -256,7 +257,7 @@ class CloudBaseMemoryService:
         update_data["$inc"] = {"conversation_count": 1}
         
         query = {"user_id": user_id}
-        self._update("user_profiles", query, json.dumps(update_data))
+        await self._update("user_profiles", query, json.dumps(update_data))
         
         return await self.get_user_profile(user_id)
     
@@ -270,7 +271,7 @@ class CloudBaseMemoryService:
         }
         
         query = {"user_id": user_id}
-        self._update("user_profiles", query, json.dumps(update_data))
+        await self._update("user_profiles", query, json.dumps(update_data))
         
         return await self.get_user_profile(user_id)
     
@@ -288,7 +289,7 @@ class CloudBaseMemoryService:
         }
         
         query = {"user_id": user_id}
-        self._update("user_profiles", query, json.dumps(update_data))
+        await self._update("user_profiles", query, json.dumps(update_data))
         
         return await self.get_user_profile(user_id)
     
@@ -297,7 +298,7 @@ class CloudBaseMemoryService:
     async def get_milestones(self, user_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """获取用户的高光里程碑"""
         query = {"user_id": user_id}
-        result = self._query("milestones", query)
+        result = await self._query("milestones", query)
         
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
@@ -322,7 +323,7 @@ class CloudBaseMemoryService:
             "updated_at": now
         }
         
-        self._insert("milestones", json.dumps(milestone_data))
+        await self._insert("milestones", json.dumps(milestone_data))
         return milestone_data
     
     async def extract_and_add_milestone(self, user_id: str, content: str) -> dict[str, Any] | None:
@@ -411,35 +412,35 @@ class CloudBaseMemoryService:
     
     # ==================== 内部方法 ====================
     
-    def _query(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
+    async def _query(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """查询文档"""
         params = {
             "CollectionName": collection,
             "Query": json.dumps(query)
         }
-        return self.client.call_api("QueryDocument", params)
+        return await self.client.call_api("QueryDocument", params)
     
-    def _insert(self, collection: str, documents: str) -> dict[str, Any]:
+    async def _insert(self, collection: str, documents: str) -> dict[str, Any]:
         """插入文档"""
         params = {
             "CollectionName": collection,
             "Documents": documents
         }
-        return self.client.call_api("InsertDocument", params)
+        return await self.client.call_api("InsertDocument", params)
     
-    def _update(self, collection: str, query: dict[str, Any], update: str) -> dict[str, Any]:
+    async def _update(self, collection: str, query: dict[str, Any], update: str) -> dict[str, Any]:
         """更新文档"""
         params = {
             "CollectionName": collection,
             "Query": json.dumps(query),
             "Updates": update
         }
-        return self.client.call_api("UpdateDocument", params)
+        return await self.client.call_api("UpdateDocument", params)
     
-    def _delete(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
+    async def _delete(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """删除文档"""
         params = {
             "CollectionName": collection,
             "Query": json.dumps(query)
         }
-        return self.client.call_api("DeleteDocument", params)
+        return await self.client.call_api("DeleteDocument", params)

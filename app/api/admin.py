@@ -5,15 +5,17 @@
 所有接口需要 X-Admin-Key 认证。
 """
 
+from __future__ import annotations
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
-from app.core.auth import verify_admin_key
-from app.models.database import get_session
-from app.models.schemas import (
+from ..config import get_settings
+from ..core.auth import verify_admin_key
+from ..models.database import get_session
+from ..models.schemas import (
     ApiResponse,
     ABTestCreate,
     ABTestResponse,
@@ -23,20 +25,18 @@ from app.models.schemas import (
     PromptTestResponse,
     PromptUpdate,
 )
-from app.providers.qwen import QwenProvider
-from app.services.ab_test_service import ABTestService
-from app.services.prompt_service import PromptService
+from ..providers.qwen import QwenProvider
+from ..services.ab_test_service import ABTestService
+from ..services.prompt_service import PromptService
 
 
 router = APIRouter(prefix="/api/admin", tags=["管理后台"])
 
-
-def get_prompt_service() -> PromptService:
-    return PromptService()
-
-
-def get_ab_test_service() -> ABTestService:
-    return ABTestService()
+# ---------- 依赖注入类型别名 ----------
+PromptServiceDep = Annotated[PromptService, Depends(lambda: PromptService())]
+ABTestServiceDep = Annotated[ABTestService, Depends(lambda: ABTestService())]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+AdminKeyDep = Annotated[str, Depends(verify_admin_key)]
 
 
 # ==================== Prompt CRUD ====================
@@ -44,9 +44,9 @@ def get_ab_test_service() -> ABTestService:
 
 @router.get("/prompts", response_model=ApiResponse[list[PromptResponse]])
 async def list_prompts(
-    prompt_service: Annotated[PromptService, Depends(get_prompt_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    prompt_service: PromptServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[list[PromptResponse]]:
     """列出所有 prompt 模板"""
     prompts = await prompt_service.list_prompts(session)
@@ -56,9 +56,9 @@ async def list_prompts(
 @router.get("/prompts/{scene}", response_model=ApiResponse[PromptResponse])
 async def get_prompt(
     scene: str,
-    prompt_service: Annotated[PromptService, Depends(get_prompt_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    prompt_service: PromptServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[PromptResponse]:
     """获取指定场景的 prompt"""
     prompt = await prompt_service.get_prompt(scene, session)
@@ -69,9 +69,9 @@ async def get_prompt(
 async def update_prompt(
     scene: str,
     data: PromptUpdate,
-    prompt_service: Annotated[PromptService, Depends(get_prompt_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    prompt_service: PromptServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[PromptResponse]:
     """更新 prompt（热更新，无需重启服务）"""
     prompt = await prompt_service.update_prompt(scene, data, session)
@@ -84,9 +84,9 @@ async def update_prompt(
 async def test_prompt(
     scene: str,
     data: PromptTestRequest,
-    prompt_service: Annotated[PromptService, Depends(get_prompt_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    prompt_service: PromptServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[PromptTestResponse]:
     """测试 prompt 效果"""
     # 获取当前 prompt
@@ -120,9 +120,9 @@ async def test_prompt(
 
 @router.get("/ab-tests", response_model=ApiResponse[list[ABTestResponse]])
 async def list_ab_tests(
-    ab_test_service: Annotated[ABTestService, Depends(get_ab_test_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    ab_test_service: ABTestServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[list[ABTestResponse]]:
     """列出所有 AB 测试"""
     tests = await ab_test_service.list_ab_tests(session)
@@ -132,9 +132,9 @@ async def list_ab_tests(
 @router.post("/ab-tests", response_model=ApiResponse[ABTestResponse])
 async def create_ab_test(
     data: ABTestCreate,
-    ab_test_service: Annotated[ABTestService, Depends(get_ab_test_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    ab_test_service: ABTestServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[ABTestResponse]:
     """创建 AB 测试"""
     ab_test = await ab_test_service.create_ab_test(data, session)
@@ -145,22 +145,22 @@ async def create_ab_test(
 async def update_ab_test(
     ab_test_id: int,
     data: ABTestUpdate,
-    ab_test_service: Annotated[ABTestService, Depends(get_ab_test_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
+    ab_test_service: ABTestServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
 ) -> ApiResponse[ABTestResponse]:
     """更新 AB 测试配置"""
     ab_test = await ab_test_service.update_ab_test(ab_test_id, data, session)
     return ApiResponse(data=ab_test)
 
 
-@router.delete("/ab-tests/{ab_test_id}", response_model=ApiResponse)
+@router.delete("/ab-tests/{ab_test_id}", response_model=ApiResponse[None])
 async def stop_ab_test(
     ab_test_id: int,
-    ab_test_service: Annotated[ABTestService, Depends(get_ab_test_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    _admin: str = Depends(verify_admin_key),
-) -> ApiResponse:
+    ab_test_service: ABTestServiceDep,
+    session: SessionDep,
+    _admin: AdminKeyDep,
+) -> ApiResponse[None]:
     """结束 AB 测试"""
     await ab_test_service.delete_ab_test(ab_test_id, session)
     return ApiResponse(message="AB 测试已结束")

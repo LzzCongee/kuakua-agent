@@ -7,17 +7,20 @@
 
 from typing import Union
 
-from app.config import get_settings
-from app.models.schemas import MemorySummary
+from ..config import get_settings
+from ..models.schemas import MemorySummary
 
 # SQL 实现
-from app.services.memory_service import MemoryService as SQLMemoryService
+from ..services.memory_service import MemoryService as SQLMemoryService
 
 # CloudBase 实现
-from app.services.cloudbase_memory import CloudBaseMemoryService
+from ..services.cloudbase_memory import CloudBaseMemoryService
+
+# 统一类型别名
+MemoryServiceType = Union[SQLMemoryService, CloudBaseMemoryService]
 
 
-def get_memory_service(db_session=None):
+def get_memory_service(db_session=None) -> MemoryServiceType:
     """
     获取记忆服务实例（工厂函数）
     

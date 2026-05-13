@@ -8,18 +8,21 @@
 - X-Trace-ID: 请求追踪 ID（可选，用于日志关联）
 """
 
+from __future__ import annotations
+
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, Query
-
-from app.config import get_settings
-from app.core.logging import get_logger
-from app.models.schemas import ApiResponse, QuoteResponse
-from app.providers.qwen import QwenProvider
-from app.services.quote_service import QuoteService
-from app.services.memory_service import MemoryService
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.database import get_session
+
+from ..config import get_settings
+from ..core.dependencies import get_user_id_from_header, HeaderUserID
+from ..core.logging import get_logger
+from ..models.database import get_session
+from ..models.schemas import ApiResponse, QuoteResponse
+from ..providers.qwen import QwenProvider
+from ..services.quote_service import QuoteService
+from ..services.memory_service import MemoryService
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -29,7 +32,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/quotes", tags=["夸夸生成"])
 
 
-def get_memory_service(session: AsyncSession = Depends(get_session)) -> MemoryService:
+def get_memory_service(session: Annotated[AsyncSession, Depends(get_session)]) -> MemoryService:
     """获取 MemoryService 实例"""
     return MemoryService(session)
 
@@ -52,21 +55,16 @@ def get_quote_service() -> QuoteService:
     return QuoteService(provider)
 
 
-async def get_user_id_from_header(
-    x_user_id: Annotated[
-        Optional[str],
-        Header(description="用户标识，用于数据隔离和个性化服务")
-    ] = "anonymous"
-) -> str:
-    """从请求头获取用户 ID"""
-    return x_user_id or "anonymous"
+# ---------- 依赖注入类型别名 ----------
+QuoteServiceDep = Annotated[QuoteService, Depends(get_quote_service)]
+MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 
 
 @router.get("/random", response_model=ApiResponse[QuoteResponse])
 async def get_random_quote(
-    service: Annotated[QuoteService, Depends(get_quote_service)],
-    memory_service: MemoryService = Depends(get_memory_service),
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
+    service: QuoteServiceDep,
+    memory_service: MemoryServiceDep,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[QuoteResponse]:
     """
     获取随机夸夸语录
@@ -93,9 +91,9 @@ async def get_scene_quote(
         Literal["career", "beauty", "love", "daily"],
         Query(alias="type", description="场景类型: career, beauty, love, daily")
     ],
-    service: Annotated[QuoteService, Depends(get_quote_service)],
-    memory_service: MemoryService = Depends(get_memory_service),
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
+    service: QuoteServiceDep,
+    memory_service: MemoryServiceDep,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[QuoteResponse]:
     """
     获取指定场景的夸夸语录

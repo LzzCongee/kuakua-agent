@@ -18,6 +18,7 @@ import os
 import sys
 import time
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -40,25 +41,21 @@ LOG_CONFIG_PATH = Path(__file__).parent.parent.parent / "logging.yaml"
 
 # ==================== Trace ID 管理 ====================
 
+# 使用 contextvars 替代 threading.local，确保 asyncio 环境下安全
+_trace_id_var: ContextVar[str] = ContextVar("trace_id", default="-")
+
+
 class TraceIDFilter(logging.Filter):
     """
     日志过滤器：为每条日志添加 trace_id
     
-    使用线程本地存储（threading.local）保存当前请求的 trace_id
+    使用 contextvars 保存当前请求的 trace_id，
+    相比 threading.local 更安全（支持 asyncio 协程切换）
     """
-    
-    _local = None  # 延迟初始化
-    
-    @property
-    def local(self):
-        if self._local is None:
-            import threading
-            self._local = threading.local()
-        return self._local
     
     def filter(self, record: logging.LogRecord) -> bool:
         """为日志记录添加 trace_id 属性"""
-        record.trace_id = getattr(self.local, "trace_id", "-")
+        record.trace_id = _trace_id_var.get("-")
         return True
 
 
@@ -71,25 +68,24 @@ def get_trace_id() -> str:
     获取当前请求的 trace_id
     
     Returns:
-        str: 当前线程的 trace_id，如果没有则返回 "-"
+        str: 当前协程的 trace_id，如果没有则返回 "-"
     """
-    return getattr(_trace_filter.local, "trace_id", "-")
+    return _trace_id_var.get("-")
 
 
 def set_trace_id(trace_id: str) -> None:
     """
-    设置当前线程的 trace_id
+    设置当前协程的 trace_id
     
     Args:
         trace_id: 追踪 ID
     """
-    _trace_filter.local.trace_id = trace_id
+    _trace_id_var.set(trace_id)
 
 
 def clear_trace_id() -> None:
-    """清除当前线程的 trace_id"""
-    if hasattr(_trace_filter.local, "trace_id"):
-        delattr(_trace_filter.local, "trace_id")
+    """重置当前协程的 trace_id"""
+    _trace_id_var.set("-")
 
 
 # ==================== 日志初始化 ====================

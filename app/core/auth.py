@@ -4,13 +4,17 @@ Admin API Key 认证中间件
 通过 X-Admin-Key header 进行简单的 API Key 认证
 """
 
+from __future__ import annotations
+
+from typing import Annotated
+
 from fastapi import Depends, HTTPException, Header, status
 
 from app.config import get_settings
 
 
 async def verify_admin_key(
-    x_admin_key: str = Header(..., description="管理后台 API Key"),
+    x_admin_key: Annotated[str, Header(description="管理后台 API Key")],
 ) -> str:
     """
     验证 Admin API Key

@@ -8,15 +8,18 @@
 - X-Trace-ID: 请求追踪 ID（可选，用于日志关联）
 """
 
-from typing import Annotated, Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.models.database import get_session
-from app.models.schemas import ApiResponse, FavoriteCreate, FavoriteResponse
-from app.services.favorite_service import FavoriteService
+from ..core.dependencies import HeaderUserID
+from ..core.logging import get_logger
+from ..models.database import get_session
+from ..models.schemas import ApiResponse, FavoriteCreate, FavoriteResponse
+from ..services.favorite_service import FavoriteService
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -25,32 +28,16 @@ logger = get_logger(__name__)
 # 创建路由实例
 router = APIRouter(prefix="/api/favorites", tags=["收藏管理"])
 
-
-def get_favorite_service() -> FavoriteService:
-    """
-    获取 FavoriteService 实例（依赖注入工厂函数）
-    
-    Returns:
-        FavoriteService: 配置好的收藏管理服务实例
-    """
-    return FavoriteService()
-
-
-async def get_user_id_from_header(
-    x_user_id: Annotated[
-        Optional[str],
-        Header(description="用户标识，用于数据隔离")
-    ] = "anonymous"
-) -> str:
-    """从请求头获取用户 ID"""
-    return x_user_id or "anonymous"
+# ---------- 依赖注入类型别名 ----------
+FavoriteServiceDep = Annotated[FavoriteService, Depends(lambda: FavoriteService())]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("", response_model=ApiResponse[list[FavoriteResponse]])
 async def list_favorites(
-    service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
+    service: FavoriteServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[list[FavoriteResponse]]:
     """
     获取用户收藏列表
@@ -72,9 +59,9 @@ async def list_favorites(
 @router.post("", response_model=ApiResponse[FavoriteResponse])
 async def add_favorite(
     data: FavoriteCreate,
-    service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
+    service: FavoriteServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[FavoriteResponse]:
     """
     添加收藏记录
@@ -93,13 +80,13 @@ async def add_favorite(
     return ApiResponse(data=favorite)
 
 
-@router.delete("/{favorite_id}", response_model=ApiResponse)
+@router.delete("/{favorite_id}", response_model=ApiResponse[None])
 async def delete_favorite(
     favorite_id: int,
-    service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
-) -> ApiResponse:
+    service: FavoriteServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID = "anonymous",
+) -> ApiResponse[None]:
     """
     删除单条收藏记录
     
@@ -110,19 +97,19 @@ async def delete_favorite(
     """
     logger.info(f"删除收藏 | user_id={user_id} | favorite_id={favorite_id}")
     
-    await service.delete_favorite(user_id=user_id, favorite_id=favorite_id, session=session)
+    _ = await service.delete_favorite(user_id=user_id, favorite_id=favorite_id, session=session)
     
     logger.info(f"收藏删除完成 | user_id={user_id} | favorite_id={favorite_id}")
     
     return ApiResponse(message="删除成功")
 
 
-@router.delete("", response_model=ApiResponse)
+@router.delete("", response_model=ApiResponse[dict[str, int]])
 async def clear_favorites(
-    service: Annotated[FavoriteService, Depends(get_favorite_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)] = "anonymous",
-) -> ApiResponse:
+    service: FavoriteServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID = "anonymous",
+) -> ApiResponse[dict[str, int]]:
     """
     清空用户所有收藏
     

@@ -4,15 +4,17 @@ Prompt 管理服务模块
 提供 Prompt 模板的增删改查和热更新功能
 """
 
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Prompt
-from app.models.schemas import PromptResponse, PromptUpdate
-from app.core.exceptions import DatabaseException, NotFoundException
+from ..models.models import Prompt
+from ..models.schemas import PromptContent, PromptResponse, PromptUpdate
+from ..core.exceptions import DatabaseException, NotFoundException
 
 
 class PromptService:
@@ -80,7 +82,7 @@ class PromptService:
                 existing.input_type = data.input_type
                 existing.version += 1
                 existing.updated_by = data.updated_by
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
                 await session.flush()
                 return self._to_response(existing)
             else:
@@ -101,7 +103,7 @@ class PromptService:
 
     async def get_active_prompt_content(
         self, scene: str, input_type: str, session: AsyncSession
-    ) -> Optional[dict[str, str]]:
+    ) -> Optional[PromptContent]:
         """
         获取活跃 prompt 的内容（供业务服务调用）
         
@@ -119,7 +121,7 @@ class PromptService:
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
             if row:
-                return {"system": row.system_prompt, "user": row.user_prompt}
+                return PromptContent(system=row.system_prompt, user=row.user_prompt)
             return None
         except Exception:
             return None

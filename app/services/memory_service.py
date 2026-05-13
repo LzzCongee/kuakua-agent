@@ -9,6 +9,8 @@
 所有方法均为异步操作，支持 PostgreSQL 和 SQLite
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -48,7 +50,7 @@ class MemoryService:
         """获取 MCP Client（延迟导入避免循环依赖）"""
         if self._mcp is not None:
             return self._mcp
-        from app.core.mcp_client import mcp_client  # pyright: ignore
+        from app.core.mcp_client import mcp_client
         return mcp_client
 
     # ==================== 短期会话记忆 ====================
@@ -110,8 +112,8 @@ class MemoryService:
         """
         session = await self.get_session(session_id)
         if session:
-            session.messages = json.dumps(messages, ensure_ascii=False)  # pyright: ignore[reportAttributeAccessIssue]
-            session.updated_at = datetime.now(timezone.utc)  # pyright: ignore[reportAttributeAccessIssue]
+            session.messages = json.dumps(messages, ensure_ascii=False)
+            session.updated_at = datetime.now(timezone.utc)
             await self.session.flush()
         return session
 
@@ -148,7 +150,7 @@ class MemoryService:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         stmt = delete(Session).where(Session.created_at < cutoff)
         result = await self.session.execute(stmt)
-        return result.rowcount  # pyright: ignore[reportAttributeAccessIssue]
+        return result.rowcount
 
     # ==================== 用户偏好记忆 ====================
 
@@ -198,19 +200,19 @@ class MemoryService:
         
         # 更新字段（只更新非 None 的字段）
         if data.prefer_scene is not None:
-            profile.prefer_scene = data.prefer_scene  # pyright: ignore[reportAttributeAccessIssue]
+            profile.prefer_scene = data.prefer_scene
         if data.prefer_style is not None:
-            profile.prefer_style = data.prefer_style  # pyright: ignore[reportAttributeAccessIssue]
+            profile.prefer_style = data.prefer_style
         if data.user_tags is not None:
-            profile.user_tags = json.dumps(data.user_tags, ensure_ascii=False)  # pyright: ignore[reportAttributeAccessIssue]
+            profile.user_tags = json.dumps(data.user_tags, ensure_ascii=False)
         if data.avoid_words is not None:
-            profile.avoid_words = json.dumps(data.avoid_words, ensure_ascii=False)  # pyright: ignore[reportAttributeAccessIssue]
+            profile.avoid_words = json.dumps(data.avoid_words, ensure_ascii=False)
         if data.last_emotion is not None:
-            profile.last_emotion = data.last_emotion  # pyright: ignore[reportAttributeAccessIssue]
+            profile.last_emotion = data.last_emotion
         
         # 更新活跃时间和对话计数
-        profile.last_active = datetime.now(timezone.utc)  # pyright: ignore[reportAttributeAccessIssue]
-        profile.conversation_count = (profile.conversation_count or 0) + 1  # pyright: ignore[reportAttributeAccessIssue]
+        profile.last_active = datetime.now(timezone.utc)
+        profile.conversation_count = (profile.conversation_count or 0) + 1
         
         await self.session.flush()
         return profile
@@ -226,8 +228,8 @@ class MemoryService:
             UserProfile: 更新后的用户偏好
         """
         profile = await self.get_or_create_profile(user_id)
-        profile.favorite_count = (profile.favorite_count or 0) + 1  # pyright: ignore[reportAttributeAccessIssue]
-        profile.last_active = datetime.now(timezone.utc)  # pyright: ignore[reportAttributeAccessIssue]
+        profile.favorite_count = (profile.favorite_count or 0) + 1
+        profile.last_active = datetime.now(timezone.utc)
         await self.session.flush()
         return profile
 
@@ -243,8 +245,8 @@ class MemoryService:
             UserProfile: 更新后的用户偏好
         """
         profile = await self.get_or_create_profile(user_id)
-        profile.prefer_scene = scene  # pyright: ignore[reportAttributeAccessIssue]
-        profile.last_active = datetime.now(timezone.utc)  # pyright: ignore[reportAttributeAccessIssue]
+        profile.prefer_scene = scene
+        profile.last_active = datetime.now(timezone.utc)
         await self.session.flush()
         return profile
 
@@ -339,16 +341,16 @@ class MemoryService:
 
         # 构建语义查询：结合用户标签 + 偏好场景 + 最近情绪
         query_parts: list[str] = []
-        if str(profile.user_tags):  # pyright: ignore[reportGeneralTypeIssues]
+        if profile.user_tags:
             try:
-                tags = json.loads(str(profile.user_tags))
+                tags = json.loads(profile.user_tags)
                 query_parts.extend(tags[:3])
             except json.JSONDecodeError:
                 pass
-        if str(profile.prefer_scene):  # pyright: ignore[reportGeneralTypeIssues]
-            query_parts.append(str(profile.prefer_scene))
-        if str(profile.last_emotion):  # pyright: ignore[reportGeneralTypeIssues]
-            query_parts.append(str(profile.last_emotion))
+        if profile.prefer_scene:
+            query_parts.append(profile.prefer_scene)
+        if profile.last_emotion:
+            query_parts.append(profile.last_emotion)
 
         if not query_parts:
             return []
@@ -427,17 +429,17 @@ class MemoryService:
         last_emotion: str | None = None
         
         if profile:
-            prefer_scene = str(profile.prefer_scene) if str(profile.prefer_scene) else None  # pyright: ignore[reportAttributeAccessIssue]
-            prefer_style = str(profile.prefer_style) if str(profile.prefer_style) else None  # pyright: ignore[reportAttributeAccessIssue]
-            last_emotion = str(profile.last_emotion) if str(profile.last_emotion) else None  # pyright: ignore[reportAttributeAccessIssue]
-            if str(profile.user_tags):  # pyright: ignore[reportGeneralTypeIssues]
+            prefer_scene = profile.prefer_scene if profile.prefer_scene else None
+            prefer_style = profile.prefer_style if profile.prefer_style else None
+            last_emotion = profile.last_emotion if profile.last_emotion else None
+            if profile.user_tags:
                 try:
-                    user_tags = json.loads(str(profile.user_tags))
+                    user_tags = json.loads(profile.user_tags)
                 except (json.JSONDecodeError, TypeError):
                     user_tags = []
-            if str(profile.avoid_words):  # pyright: ignore[reportGeneralTypeIssues]
+            if profile.avoid_words:
                 try:
-                    avoid_words = json.loads(str(profile.avoid_words))
+                    avoid_words = json.loads(profile.avoid_words)
                 except (json.JSONDecodeError, TypeError):
                     avoid_words = []
         
@@ -445,15 +447,15 @@ class MemoryService:
         recent_messages: list[dict[str, Any]] = []
         if session_id:
             session = await self.get_session(session_id)
-            if session and str(session.messages):  # pyright: ignore[reportGeneralTypeIssues]
+            if session and session.messages:
                 try:
-                    recent_messages = json.loads(str(session.messages))
+                    recent_messages = json.loads(session.messages)
                 except (json.JSONDecodeError, TypeError):
                     recent_messages = []
         
         # 获取高光里程碑
         milestones = await self.get_milestones(user_id, limit=5)
-        milestone_contents = [str(m.content) for m in milestones]
+        milestone_contents = [m.content for m in milestones]
         
         # 获取语义记忆（supermemory）
         semantic_memories = await self._get_semantic_memories(user_id)
@@ -479,14 +481,14 @@ class MemoryService:
         Returns:
             str: 格式化的记忆字符串
         """
-        parts = []
+        parts: list[str] = []
         
         if memory.prefer_scene:
             parts.append(f"偏好场景：{memory.prefer_scene}")
         if memory.prefer_style:
             parts.append(f"喜欢风格：{memory.prefer_style}")
         if memory.user_tags:
-            parts.append(f"用户标签：{', '.join(memory.user_tags[:5])}")  # 最多5个标签
+            parts.append(f"用户标签：{', '.join(memory.user_tags[:5])}")
         if memory.last_emotion:
             parts.append(f"当前情绪：{memory.last_emotion}")
         
@@ -508,17 +510,3 @@ class MemoryService:
             return ""
         
         return "【用户记忆】\n" + "\n".join(parts)
-
-
-# ==================== 便捷工厂函数（用于非依赖注入场景）====================
-
-async def get_memory_service() -> MemoryService:
-    """
-    获取 MemoryService 实例（用于非 FastAPI 依赖注入场景）
-    
-    Returns:
-        MemoryService: 记忆服务实例
-    """
-    # 注意：此函数需要在异步上下文中使用，并且 get_db() 是生成器
-    # 实际使用时应该通过依赖注入获取 session
-    raise NotImplementedError("请通过 FastAPI 依赖注入使用 MemoryService")

@@ -1,15 +1,18 @@
 """
 SQLAlchemy ORM 模型定义
 
-定义数据库表结构，支持 PostgreSQL 和 SQLite
+使用 SQLAlchemy 2.0 声明式风格（Mapped + mapped_column），
+提供完整的类型推断支持，让 mypy/pyright 能正确推导属性类型。
 """
+
+from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Boolean, Float, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.database import Base
+from ..models.database import Base
 
 
 def _utc_now() -> datetime:
@@ -21,44 +24,45 @@ class Favorite(Base):
     """收藏表 ORM 模型"""
     __tablename__ = "favorites"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(100), nullable=False, default="default", index=True)
-    content = Column(Text, nullable=False)
-    scene = Column(String(50), nullable=False, default="general")
-    created_at = Column(DateTime, default=_utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, default="default", index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
 class Prompt(Base):
     """Prompt 模板表 ORM 模型 - 支持 prompt 热更新"""
     __tablename__ = "prompts"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    scene = Column(String(50), nullable=False, unique=True, index=True)
-    system_prompt = Column(Text, nullable=False)
-    user_prompt = Column(Text, nullable=False, default="")
-    input_type = Column(String(20), nullable=False, default="text_only")
-    version = Column(Integer, nullable=False, default=1)
-    is_active = Column(Boolean, nullable=False, default=True)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
-    updated_by = Column(String(100), nullable=False, default="system")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    user_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    input_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text_only")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+    updated_by: Mapped[str] = mapped_column(String(100), nullable=False, default="system")
 
 
 class ABTest(Base):
     """AB 测试配置表 ORM 模型"""
     __tablename__ = "ab_tests"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False)
-    scene = Column(String(50), nullable=False, index=True)
-    prompt_a_id = Column(Integer, ForeignKey("prompts.id"), nullable=True)
-    prompt_b_id = Column(Integer, ForeignKey("prompts.id"), nullable=True)
-    traffic_ratio = Column(Float, nullable=False, default=0.5)
-    status = Column(String(20), nullable=False, default="running")
-    created_at = Column(DateTime, default=_utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    prompt_a_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=True)
+    prompt_b_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=True)
+    traffic_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
 
     # 关系
-    prompt_a = relationship("Prompt", foreign_keys=[prompt_a_id])
-    prompt_b = relationship("Prompt", foreign_keys=[prompt_b_id])
+    prompt_a: Mapped[Prompt | None] = relationship("Prompt", foreign_keys=[prompt_a_id])
+    prompt_b: Mapped[Prompt | None] = relationship("Prompt", foreign_keys=[prompt_b_id])
 
 
 class Session(Base):
@@ -70,13 +74,13 @@ class Session(Base):
     """
     __tablename__ = "sessions"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(String(100), nullable=False, unique=True, index=True)
-    user_id = Column(String(100), nullable=False, default="default", index=True)
-    scene = Column(String(50), nullable=False, default="general")
-    messages = Column(Text, nullable=False, default="[]")  # JSON格式存储消息列表
-    created_at = Column(DateTime, default=_utc_now)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, default="default", index=True)
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
+    messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON格式存储消息列表
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
 class UserProfile(Base):
@@ -88,18 +92,18 @@ class UserProfile(Base):
     """
     __tablename__ = "user_profiles"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(100), nullable=False, unique=True, index=True)
-    prefer_scene = Column(String(50), nullable=True)  # 最喜欢的场景
-    prefer_style = Column(String(50), nullable=True)  # 喜欢的夸夸风格（温柔/元气/搞笑等）
-    user_tags = Column(Text, nullable=True, default="[]")  # JSON格式，自动提取的用户标签
-    avoid_words = Column(Text, nullable=True, default="[]")  # JSON格式，用户不喜欢的词
-    last_emotion = Column(String(50), nullable=True)  # 最近一次情绪状态
-    conversation_count = Column(Integer, nullable=False, default=0)  # 对话次数累计
-    favorite_count = Column(Integer, nullable=False, default=0)  # 收藏次数累计
-    last_active = Column(DateTime, default=_utc_now)
-    created_at = Column(DateTime, default=_utc_now)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    prefer_scene: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    prefer_style: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    user_tags: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
+    avoid_words: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
+    last_emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
 class Milestone(Base):
@@ -111,13 +115,11 @@ class Milestone(Base):
     """
     __tablename__ = "milestones"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(100), nullable=False, index=True)
-    content = Column(Text, nullable=False)  # 里程碑内容
-    source = Column(String(50), nullable=True)  # 来源：user_input / favorite / manual
-    importance = Column(Integer, nullable=False, default=1)  # 重要性：1-5
-    is_achieved = Column(Boolean, nullable=False, default=False)  # 是否已达成
-    created_at = Column(DateTime, default=_utc_now)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
-
-
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    importance: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_achieved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)

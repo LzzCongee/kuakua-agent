@@ -7,14 +7,17 @@
 - 里程碑管理（GET/POST /api/memory/milestones/）
 """
 
-import json
-from typing import Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from datetime import datetime
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.database import get_session
-from app.models.schemas import (
+from ..models.database import get_session
+from ..models.schemas import (
     ApiResponse,
     UserProfileUpdate,
     UserProfileResponse,
@@ -25,14 +28,72 @@ from app.models.schemas import (
     MilestoneResponse,
     MemorySummary,
 )
-from app.services.memory_service import MemoryService
+from ..services.memory_service import MemoryService
 
 router = APIRouter(prefix="/api/memory", tags=["记忆管理"])
 
+# ---------- 依赖注入类型别名 ----------
 
-def get_memory_service(session: AsyncSession = Depends(get_session)) -> MemoryService:
-    """依赖注入：获取 MemoryService 实例"""
+AdminSessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _get_memory_service(session: AdminSessionDep) -> MemoryService:
+    """获取 MemoryService 实例（依赖注入工厂函数）"""
     return MemoryService(session)
+
+
+MemoryServiceDep = Annotated[MemoryService, Depends(_get_memory_service)]
+
+
+# ---------- 辅助函数 ----------
+
+def _parse_json_list(value: str | None) -> list[Any]:
+    """安全解析 JSON 字符串为 list，失败返回空列表"""
+    if not value:
+        return []
+    try:
+        result: list[Any] = json.loads(value)
+        return result
+    except json.JSONDecodeError:
+        return []
+
+
+def _parse_json_str_list(value: str | None) -> list[str]:
+    """安全解析 JSON 字符串为 list[str]，失败返回空列表"""
+    if not value:
+        return []
+    try:
+        result: list[str] = json.loads(value)
+        return result
+    except json.JSONDecodeError:
+        return []
+
+
+def _profile_to_response(
+    id: int,
+    user_id: str,
+    prefer_scene: str | None,
+    prefer_style: str | None,
+    user_tags_raw: str | None,
+    avoid_words_raw: str | None,
+    last_emotion: str | None,
+    conversation_count: int | None,
+    favorite_count: int | None,
+    last_active: datetime | None,
+) -> UserProfileResponse:
+    """将 UserProfile ORM 属性映射为 UserProfileResponse（消除重复的 JSON 解析逻辑）"""
+    return UserProfileResponse(
+        id=id,
+        user_id=user_id,
+        prefer_scene=prefer_scene,
+        prefer_style=prefer_style,
+        user_tags=_parse_json_str_list(user_tags_raw),
+        avoid_words=_parse_json_str_list(avoid_words_raw),
+        last_emotion=last_emotion,
+        conversation_count=conversation_count or 0,
+        favorite_count=favorite_count or 0,
+        last_active=last_active,
+    )
 
 
 # ==================== 用户偏好相关接口 ====================
@@ -41,8 +102,9 @@ def get_memory_service(session: AsyncSession = Depends(get_session)) -> MemorySe
 @router.get("/profile/{user_id}", response_model=ApiResponse[UserProfileResponse])
 async def get_user_profile(
     user_id: str,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+    _session: AdminSessionDep,
+) -> ApiResponse[UserProfileResponse]:
     """
     获取用户偏好记录
     
@@ -55,7 +117,6 @@ async def get_user_profile(
     profile = await service.get_user_profile(user_id)
     
     if not profile:
-        # 返回默认空结构
         return ApiResponse(
             data=UserProfileResponse(
                 id=0,
@@ -65,32 +126,18 @@ async def get_user_profile(
             )
         )
     
-    # 解析 JSON 字段
-    user_tags = []
-    avoid_words = []
-    if profile.user_tags:
-        try:
-            user_tags = json.loads(profile.user_tags)
-        except json.JSONDecodeError:
-            pass
-    if profile.avoid_words:
-        try:
-            avoid_words = json.loads(profile.avoid_words)
-        except json.JSONDecodeError:
-            pass
-    
     return ApiResponse(
-        data=UserProfileResponse(
+        data=_profile_to_response(
             id=profile.id,
             user_id=profile.user_id,
             prefer_scene=profile.prefer_scene,
             prefer_style=profile.prefer_style,
-            user_tags=user_tags,
-            avoid_words=avoid_words,
+            user_tags_raw=profile.user_tags,
+            avoid_words_raw=profile.avoid_words,
             last_emotion=profile.last_emotion,
-            conversation_count=profile.conversation_count or 0,
-            favorite_count=profile.favorite_count or 0,
-            last_active=profile.last_active
+            conversation_count=profile.conversation_count,
+            favorite_count=profile.favorite_count,
+            last_active=profile.last_active,
         )
     )
 
@@ -99,8 +146,9 @@ async def get_user_profile(
 async def update_user_profile(
     user_id: str,
     data: UserProfileUpdate,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+    _session: AdminSessionDep,
+) -> ApiResponse[UserProfileResponse]:
     """
     更新用户偏好
     
@@ -113,32 +161,18 @@ async def update_user_profile(
     """
     profile = await service.update_user_profile(user_id, data)
     
-    # 解析 JSON 字段
-    user_tags = []
-    avoid_words = []
-    if profile.user_tags:
-        try:
-            user_tags = json.loads(profile.user_tags)
-        except json.JSONDecodeError:
-            pass
-    if profile.avoid_words:
-        try:
-            avoid_words = json.loads(profile.avoid_words)
-        except json.JSONDecodeError:
-            pass
-    
     return ApiResponse(
-        data=UserProfileResponse(
+        data=_profile_to_response(
             id=profile.id,
             user_id=profile.user_id,
             prefer_scene=profile.prefer_scene,
             prefer_style=profile.prefer_style,
-            user_tags=user_tags,
-            avoid_words=avoid_words,
+            user_tags_raw=profile.user_tags,
+            avoid_words_raw=profile.avoid_words,
             last_emotion=profile.last_emotion,
-            conversation_count=profile.conversation_count or 0,
-            favorite_count=profile.favorite_count or 0,
-            last_active=profile.last_active
+            conversation_count=profile.conversation_count,
+            favorite_count=profile.favorite_count,
+            last_active=profile.last_active,
         )
     )
 
@@ -146,9 +180,9 @@ async def update_user_profile(
 @router.get("/summary/{user_id}", response_model=ApiResponse[MemorySummary])
 async def get_memory_summary(
     user_id: str,
-    session_id: Optional[str] = None,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+    session_id: Annotated[str | None, Query(description="可选的当前会话ID")] = None,
+) -> ApiResponse[MemorySummary]:
     """
     获取用户记忆汇总（用于注入 Prompt）
     
@@ -169,9 +203,9 @@ async def get_memory_summary(
 @router.get("/sessions/{user_id}", response_model=ApiResponse[list[SessionResponse]])
 async def get_user_sessions(
     user_id: str,
+    service: MemoryServiceDep,
     limit: int = 5,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+) -> ApiResponse[list[SessionResponse]]:
     """
     获取用户的会话历史
     
@@ -184,24 +218,18 @@ async def get_user_sessions(
     """
     sessions = await service.get_recent_sessions(user_id, limit)
     
-    results = []
-    for s in sessions:
-        messages = []
-        if s.messages:
-            try:
-                messages = json.loads(s.messages)
-            except json.JSONDecodeError:
-                pass
-        
-        results.append(SessionResponse(
+    results = [
+        SessionResponse(
             id=s.id,
             session_id=s.session_id,
             user_id=s.user_id,
             scene=s.scene,
-            messages=messages,
+            messages=_parse_json_list(s.messages),
             created_at=s.created_at,
-            updated_at=s.updated_at
-        ))
+            updated_at=s.updated_at,
+        )
+        for s in sessions
+    ]
     
     return ApiResponse(data=results)
 
@@ -209,8 +237,8 @@ async def get_user_sessions(
 @router.post("/sessions", response_model=ApiResponse[SessionResponse])
 async def create_or_update_session(
     data: SessionCreate,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+) -> ApiResponse[SessionResponse]:
     """
     创建或更新会话
     
@@ -248,8 +276,8 @@ async def create_or_update_session(
 async def update_session(
     session_id: str,
     data: SessionUpdate,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+) -> ApiResponse[SessionResponse]:
     """
     更新会话消息
     
@@ -269,20 +297,13 @@ async def update_session(
         session.scene = data.scene
         await service.session.flush()
     
-    messages = []
-    if session.messages:
-        try:
-            messages = json.loads(session.messages)
-        except json.JSONDecodeError:
-            pass
-    
     return ApiResponse(
         data=SessionResponse(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
             scene=session.scene,
-            messages=messages,
+            messages=_parse_json_list(session.messages),
             created_at=session.created_at,
             updated_at=session.updated_at
         )
@@ -292,8 +313,8 @@ async def update_session(
 @router.get("/sessions/detail/{session_id}", response_model=ApiResponse[SessionResponse])
 async def get_session_by_id(
     session_id: str,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+) -> ApiResponse[SessionResponse]:
     """
     根据 session_id 获取会话详情
     
@@ -308,20 +329,13 @@ async def get_session_by_id(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     
-    messages = []
-    if session.messages:
-        try:
-            messages = json.loads(session.messages)
-        except json.JSONDecodeError:
-            pass
-    
     return ApiResponse(
         data=SessionResponse(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
             scene=session.scene,
-            messages=messages,
+            messages=_parse_json_list(session.messages),
             created_at=session.created_at,
             updated_at=session.updated_at
         )
@@ -334,9 +348,9 @@ async def get_session_by_id(
 @router.get("/milestones/{user_id}", response_model=ApiResponse[list[MilestoneResponse]])
 async def get_user_milestones(
     user_id: str,
+    service: MemoryServiceDep,
     limit: int = 10,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+) -> ApiResponse[list[MilestoneResponse]]:
     """
     获取用户的高光里程碑
     
@@ -357,7 +371,7 @@ async def get_user_milestones(
             source=m.source,
             importance=m.importance,
             is_achieved=m.is_achieved,
-            created_at=m.created_at
+            created_at=m.created_at,
         )
         for m in milestones
     ]
@@ -368,8 +382,8 @@ async def get_user_milestones(
 @router.post("/milestones", response_model=ApiResponse[MilestoneResponse])
 async def create_milestone(
     data: MilestoneCreate,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+) -> ApiResponse[MilestoneResponse]:
     """
     添加高光里程碑
     
@@ -389,17 +403,17 @@ async def create_milestone(
             source=milestone.source,
             importance=milestone.importance,
             is_achieved=milestone.is_achieved,
-            created_at=milestone.created_at
+            created_at=milestone.created_at,
         )
     )
 
 
-@router.post("/milestones/extract", response_model=ApiResponse[Optional[MilestoneResponse]])
+@router.post("/milestones/extract", response_model=ApiResponse[MilestoneResponse | None])
 async def extract_milestone(
     user_id: str,
     content: str,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+    service: MemoryServiceDep,
+) -> ApiResponse[MilestoneResponse | None]:
     """
     从对话内容中提取并添加里程碑
     
@@ -423,7 +437,7 @@ async def extract_milestone(
             source=milestone.source,
             importance=milestone.importance,
             is_achieved=milestone.is_achieved,
-            created_at=milestone.created_at
+            created_at=milestone.created_at,
         ),
         message="成功提取里程碑"
     )
@@ -434,9 +448,9 @@ async def extract_milestone(
 
 @router.post("/cleanup", response_model=ApiResponse[int])
 async def cleanup_expired_sessions(
+    service: MemoryServiceDep,
     hours: int = 2,
-    service: MemoryService = Depends(get_memory_service)
-) -> dict:
+) -> ApiResponse[int]:
     """
     清理过期的会话记录
     

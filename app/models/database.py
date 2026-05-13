@@ -5,6 +5,8 @@ PostgreSQL 数据库管理模块
 支持 PostgreSQL（生产）和 SQLite（开发回退）
 """
 
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -12,7 +14,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from app.config import get_settings
+from ..config import get_settings
 
 
 class Base(DeclarativeBase):

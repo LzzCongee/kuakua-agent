@@ -4,15 +4,17 @@
 使用 SQLAlchemy AsyncSession 实现用户收藏的增删改查功能
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Favorite
-from app.models.schemas import FavoriteCreate, FavoriteResponse
-from app.core.exceptions import DatabaseException, NotFoundException
+from ..models.models import Favorite
+from ..models.schemas import FavoriteCreate, FavoriteResponse
+from ..core.exceptions import DatabaseException, NotFoundException
 
 
 class FavoriteService:

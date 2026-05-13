@@ -4,9 +4,22 @@ Pydantic 模型定义模块
 定义 API 请求和响应的数据模型
 """
 
-from datetime import datetime
-from typing import Any, Generic, Optional, TypeVar
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Generic, Optional, TypedDict, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class PromptContent(TypedDict):
+    """Prompt 内容结构类型（用于类型安全的 prompt 字典传递）"""
+    system: str
+    user: str
+
+
+def _utc_now() -> datetime:
+    """返回带时区信息的 UTC 当前时间"""
+    return datetime.now(timezone.utc)
 
 
 class QuoteResponse(BaseModel):
@@ -22,7 +35,7 @@ class QuoteResponse(BaseModel):
     
     content: str = Field(..., description="夸夸语录内容")
     scene: str = Field(default="general", description="场景标签")
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
+    created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
 
 
 class FavoriteCreate(BaseModel):
@@ -115,7 +128,7 @@ class ChatResponse(BaseModel):
     content: str = Field(..., description="AI 生成的夸夸文案")
     scene: str = Field(..., description="场景标签")
     has_image: bool = Field(default=False, description="是否包含图片输入")
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
+    created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
 
 
 # ==================== Admin 相关模型 ====================
@@ -275,7 +288,7 @@ class MilestoneResponse(BaseModel):
     source: Optional[str] = Field(default=None, description="来源")
     importance: int = Field(..., description="重要性")
     is_achieved: bool = Field(default=False, description="是否达成")
-    created_at: datetime = Field(..., description="创建时间")
+    created_at: Optional[datetime] = Field(default=None, description="创建时间")
 
 
 class MemorySummary(BaseModel):

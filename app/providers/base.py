@@ -59,12 +59,21 @@ class BaseAIProvider(ABC):
         self.model = model
     
     @abstractmethod
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 150,
+    ) -> str:
         """
         调用 AI 模型生成文本
         
         Args:
             prompt: 输入提示词
+            system_prompt: 系统提示词（可选）
+            temperature: 采样温度
+            max_tokens: 最大生成 token 数
             
         Returns:
             AI 生成的文本内容

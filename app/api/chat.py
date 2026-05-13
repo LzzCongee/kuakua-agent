@@ -9,23 +9,30 @@
 - X-Trace-ID: 请求追踪 ID（可选，用于日志关联）
 """
 
-import json
-from typing import Annotated, Optional
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Query
+import asyncio
+import json
+from datetime import datetime, timezone
+from collections.abc import AsyncGenerator
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.config import get_settings
-from app.core.logging import get_logger
-from app.core.mcp_client import mcp_client
-from app.models.database import get_session
-from app.models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary
-from app.providers.qwen import QwenProvider
-from app.services.ab_test_service import ABTestService
-from app.services.chat_service import ChatService
-from app.services.memory_service import MemoryService
-from app.services.prompt_service import PromptService
+from ..config import get_settings
+from ..core.dependencies import HeaderUserID
+from ..core.logging import get_logger
+from ..core.mcp_client import mcp_client
+from ..models.database import get_session
+from ..models.schemas import ApiResponse, ChatRequest, ChatResponse, MemorySummary, PromptContent
+from ..providers.qwen import QwenProvider
+from ..services.ab_test_service import ABTestService
+from ..services.chat_service import ChatService
+from ..services.memory_service import MemoryService
+from ..services.prompt_service import PromptService
+from ..prompts.templates import get_chat_prompt
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -34,11 +41,12 @@ logger = get_logger(__name__)
 # 创建路由实例
 router = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
 
+# ---------- 依赖注入类型别名 ----------
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
 
 def get_chat_service() -> ChatService:
-    """
-    获取 ChatService 实例（依赖注入工厂函数）
-    """
+    """获取 ChatService 实例（依赖注入工厂函数）"""
     settings = get_settings()
     provider = QwenProvider(
         api_key=settings.modelscope_api_key,
@@ -51,22 +59,15 @@ def get_chat_service() -> ChatService:
     )
 
 
-async def get_user_id_from_header(
-    x_user_id: Annotated[
-        Optional[str],
-        Header(description="用户标识，用于数据隔离和个性化服务")
-    ] = "anonymous"
-) -> str:
-    """从请求头获取用户 ID"""
-    return x_user_id or "anonymous"
+ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 
 
 @router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
     request: ChatRequest,
-    service: Annotated[ChatService, Depends(get_chat_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)],
+    service: ChatServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID,
     session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> ApiResponse[ChatResponse]:
     """
@@ -95,8 +96,8 @@ async def chat(
         memory_summary=memory_summary
     )
     
-    # 更新会话记录（异步，不阻塞响应）
-    _ = _update_session_after_chat(user_id, session_id, request, response)
+    # 更新会话记录（后台任务，不阻塞响应）
+    _task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
     
     logger.info(f"夸夸生成完成 | user_id={user_id} | response_length={len(response.content)}")
     
@@ -106,9 +107,9 @@ async def chat(
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
-    service: Annotated[ChatService, Depends(get_chat_service)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-    user_id: Annotated[str, Depends(get_user_id_from_header)],
+    service: ChatServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID,
     session_id: Annotated[str, Query(description="会话ID，用于追踪上下文")] = "",
 ) -> EventSourceResponse:
     """
@@ -121,9 +122,6 @@ async def chat_stream(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
-    from datetime import datetime
-    from app.prompts.templates import get_chat_prompt
-
     # 判断输入类型
     has_text = bool(request.text and request.text.strip())
     has_image = bool(request.image and request.image.strip())
@@ -159,7 +157,7 @@ async def chat_stream(
     if memory_summary:
         system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         try:
             full_content = ""
             async for chunk in service.provider.generate_stream(
@@ -182,7 +180,7 @@ async def chat_stream(
                         "content": full_content,
                         "scene": request.scene,
                         "has_image": has_image,
-                        "created_at": datetime.now().isoformat(),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
                     },
                     ensure_ascii=False,
                 ),
@@ -193,12 +191,12 @@ async def chat_stream(
                 "data": json.dumps({"message": str(e)}, ensure_ascii=False),
             }
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator())  # type: ignore[arg-type]
 
 
 async def _try_get_ab_test_prompt(
     scene: str, user_id: str, session: AsyncSession
-) -> Optional[dict]:
+) -> PromptContent | None:
     """尝试从 AB 测试获取 prompt"""
     try:
         ab_service = ABTestService()
@@ -209,7 +207,7 @@ async def _try_get_ab_test_prompt(
 
 async def _try_get_db_prompt(
     scene: str, input_type: str, session: AsyncSession
-) -> Optional[dict]:
+) -> PromptContent | None:
     """尝试从数据库获取 prompt"""
     try:
         prompt_service = PromptService()
@@ -222,7 +220,7 @@ async def _try_get_db_prompt(
 
 async def _get_user_memory(
     user_id: str, session_id: str, session: AsyncSession
-) -> Optional[MemorySummary]:
+) -> MemorySummary | None:
     """
     获取用户记忆汇总
     
@@ -252,73 +250,79 @@ async def _update_session_after_chat(
     
     将用户的消息和 AI 的回复都记录到会话中，
     用于后续的上下文追踪和记忆提取。
-    
-    Args:
-        user_id: 用户ID
-        session_id: 会话ID
-        request: 用户请求
-        response: AI 响应
     """
     if not session_id:
         return
     
     try:
-        memory_service = MemoryService(session)
+        from ..models.database import get_db
         
-        # 获取或创建会话
-        session_obj = await memory_service.get_or_create_session(
-            user_id=user_id,
-            session_id=session_id,
-            scene=request.scene
-        )
-        
-        # 解析现有消息
-        import json
-        messages = []
-        if session_obj.messages:
-            try:
-                messages = json.loads(session_obj.messages)
-            except json.JSONDecodeError:
-                messages = []
-        
-        # 添加用户消息
-        if request.text:
+        async with get_db() as db_session:
+            memory_service = MemoryService(db_session)
+            
+            # 获取或创建会话
+            session_obj = await memory_service.get_or_create_session(
+                user_id=user_id,
+                session_id=session_id,
+                scene=request.scene
+            )
+            
+            # 解析现有消息
+            messages: list[dict[str, str]] = []
+            if session_obj.messages:
+                try:
+                    messages = json.loads(session_obj.messages)
+                except json.JSONDecodeError:
+                    messages = []
+            
+            # 添加用户消息
+            if request.text:
+                messages.append({
+                    "role": "user",
+                    "content": request.text,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+            
+            # 添加 AI 回复
             messages.append({
-                "role": "user",
-                "content": request.text,
-                "timestamp": datetime.now().isoformat()
+                "role": "assistant",
+                "content": response.content,
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
-        
-        # 添加 AI 回复
-        messages.append({
-            "role": "assistant",
-            "content": response.content,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # 保留最近 10 条消息（避免过长）
-        messages = messages[-10:]
-        
-        # 更新会话
-        session_obj.messages = json.dumps(messages, ensure_ascii=False)
-        await session.commit()
-        
-        # 提取并添加里程碑（如果检测到成就）
-        if request.text:
-            await memory_service.extract_and_add_milestone(user_id, request.text)
+            
+            # 保留最近 10 条消息（避免过长）
+            messages = messages[-10:]
+            
+            # 更新会话
+            session_obj.messages = json.dumps(messages, ensure_ascii=False)
+            await db_session.commit()
+            
+            # 提取并添加里程碑（如果检测到成就）
+            if request.text:
+                _ = await memory_service.extract_and_add_milestone(user_id, request.text)
 
-        # 保存到 supermemory 语义记忆（降级逻辑已内置于 MCPClient.call()）
-        memory_service_sm = MemoryService(session, mcp_client)
-        await memory_service_sm.save_chat_to_supermemory(
-            user_id=user_id,
-            user_message=request.text or "",
-            ai_response=response.content,
-            scene=request.scene,
-            emotion=None,
-        )
+            # 保存到 supermemory 语义记忆（降级逻辑已内置于 MCPClient.call()）
+            memory_service_sm = MemoryService(db_session, mcp_client)
+            await memory_service_sm.save_chat_to_supermemory(
+                user_id=user_id,
+                user_message=request.text or "",
+                ai_response=response.content,
+                scene=request.scene,
+                emotion=None,
+            )
     except Exception:
         # 静默失败，不影响主流程
         pass
+
+
+async def _update_session_after_chat_bg(
+    user_id: str,
+    session_id: str,
+    request: ChatRequest,
+    response: ChatResponse,
+) -> None:
+    """后台任务包装，确保异常不会导致未处理的 task 异常"""
+    await _update_session_after_chat(user_id, session_id, request, response)
 
 
 def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
@@ -332,7 +336,7 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     Returns:
         str: 注入记忆后的 system prompt
     """
-    parts = []
+    parts: list[str] = []
     
     # 偏好场景和风格
     if memory.prefer_scene:
@@ -351,7 +355,7 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     
     # 最近对话（用于保持上下文连贯）
     if memory.recent_messages:
-        msg_list = []
+        msg_list: list[str] = []
         for msg in memory.recent_messages[-3:]:
             role = msg.get("role", "user")
             content = msg.get("content", "")[:50]

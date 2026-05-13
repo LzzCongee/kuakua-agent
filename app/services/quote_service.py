@@ -4,21 +4,23 @@
 提供夸夸语录的生成功能，支持通用随机生成和指定场景生成。
 """
 
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from app.models.schemas import QuoteResponse
-from app.providers.base import BaseAIProvider, AIProviderException
-from app.prompts.templates import (
+from ..models.schemas import QuoteResponse
+from ..providers.base import BaseAIProvider, AIProviderException
+from ..prompts.templates import (
     SceneType, 
     get_prompt, 
     get_scene_by_value,
     SYSTEM_PROMPTS,
     USER_PROMPTS
 )
-from app.core.exceptions import AIServiceException
-from app.services.memory_service import MemoryService
-from app.models.schemas import MemorySummary
+from ..core.exceptions import AIServiceException
+from ..services.memory_service import MemoryService
+from ..models.schemas import MemorySummary
 
 
 class QuoteService:
@@ -93,7 +95,7 @@ class QuoteService:
             return QuoteResponse(
                 content=content,
                 scene=SceneType.GENERAL.value,
-                created_at=datetime.now()
+                created_at=datetime.now(timezone.utc)
             )
         except AIProviderException as e:
             raise AIServiceException(f"生成随机夸夸失败: {e.message}")
@@ -157,7 +159,7 @@ class QuoteService:
             return QuoteResponse(
                 content=content,
                 scene=scene_type.value,
-                created_at=datetime.now()
+                created_at=datetime.now(timezone.utc)
             )
         except AIProviderException as e:
             raise AIServiceException(f"生成场景夸夸失败: {e.message}")
