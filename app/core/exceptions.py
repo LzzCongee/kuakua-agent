@@ -16,16 +16,19 @@ class AppException(Exception):
     应用异常基类
     
     所有业务异常都应继承此类，提供统一的错误码和错误消息格式。
+    业务错误码（code）用于问题域定位，HTTP 状态码（status_code）用于响应。
     
     Attributes:
-        code: HTTP 状态码或业务错误码
-        message: 错误描述信息
+        code: 业务错误码（如 NOT_FOUND），UPPER_SNAKE_CASE 格式
+        message: 用户友好的错误描述信息
+        status_code: HTTP 状态码
     """
     
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: str, message: str, status_code: int = 400):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.status_code = status_code
     
     def __str__(self) -> str:
         return f"[{self.code}] {self.message}"
@@ -39,7 +42,7 @@ class AIServiceException(AppException):
     """
     
     def __init__(self, message: str = "AI 服务调用失败"):
-        super().__init__(code=503, message=message)
+        super().__init__(code="AI_SERVICE_ERROR", message=message, status_code=503)
 
 
 class DatabaseException(AppException):
@@ -50,7 +53,7 @@ class DatabaseException(AppException):
     """
     
     def __init__(self, message: str = "数据库操作失败"):
-        super().__init__(code=500, message=message)
+        super().__init__(code="DATABASE_ERROR", message=message, status_code=500)
 
 
 class NotFoundException(AppException):
@@ -61,7 +64,7 @@ class NotFoundException(AppException):
     """
     
     def __init__(self, message: str = "请求的资源不存在"):
-        super().__init__(code=404, message=message)
+        super().__init__(code="NOT_FOUND", message=message, status_code=404)
 
 
 class ValidationException(AppException):
@@ -72,7 +75,7 @@ class ValidationException(AppException):
     """
     
     def __init__(self, message: str = "请求参数错误"):
-        super().__init__(code=400, message=message)
+        super().__init__(code="VALIDATION_ERROR", message=message, status_code=400)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -93,9 +96,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         """处理 AppException 及其子类"""
+        logger = get_logger("app.exceptions")
+        logger.warning(f"业务异常 | code={exc.code} | message={exc.message} | path={request.url.path}")
         return JSONResponse(
-            status_code=exc.code,
-            content=ApiResponse(code=exc.code, message=exc.message).model_dump()
+            status_code=exc.status_code,
+            content=ApiResponse(code=exc.status_code, message=exc.message).model_dump()
         )
         
     # 处理通用异常（兜底）

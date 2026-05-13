@@ -81,7 +81,7 @@ class BaseAIProvider(ABC):
         Raises:
             AIProviderException: 当 API 调用失败时抛出
         """
-        pass
+        ...
     
     @abstractmethod
     async def generate_multimodal(self, messages: list[dict], model: str | None = None) -> str:
@@ -107,7 +107,7 @@ class BaseAIProvider(ABC):
         Raises:
             AIProviderException: 当 API 调用失败时抛出
         """
-        pass
+        ...
 
     async def generate_stream(
         self,

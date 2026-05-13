@@ -112,7 +112,7 @@ class MCPClient:
             try:
                 await self._client_ctx.__aexit__(None, None, None)
             except Exception:
-                pass
+                logger.debug("MCP 连接关闭时异常（可忽略）", exc_info=True)
             self._client_ctx = None
             self._session = None
             logger.info("MCP 连接已关闭")

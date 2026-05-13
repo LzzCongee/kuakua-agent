@@ -80,8 +80,8 @@ class Settings(BaseSettings):
 
     # 魔搭社区 API Key（必填，需要从 https://modelscope.cn/services/api 申请）
     modelscope_api_key: str = Field(
-        default="your_api_key_here",
-        description="魔搭社区 API Key"
+        default="CHANGE_ME_IN_PRODUCTION",
+        description="魔搭社区 API Key（生产环境必须修改）"
     )
 
     # AI 服务基础 URL，默认为魔搭社区 OpenAI 兼容接口
@@ -113,8 +113,8 @@ class Settings(BaseSettings):
     
     # 管理后台 API Key（用于 admin 接口认证）
     admin_api_key: str = Field(
-        default="changeme",
-        description="管理后台 API Key，用于 X-Admin-Key header 认证"
+        default="CHANGE_ME_IN_PRODUCTION",
+        description="管理后台 API Key，用于 X-Admin-Key header 认证（生产环境必须修改）"
     )
 
     # ==================== supermemory MCP 配置 ====================

@@ -15,7 +15,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 # 创建路由实例
-router = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
+router: APIRouter = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
 
 # ---------- 依赖注入类型别名 ----------
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -97,7 +97,8 @@ async def chat(
     )
     
     # 更新会话记录（后台任务，不阻塞响应）
-    _task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
+    task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
+    task.add_done_callback(_handle_task_exception)
     
     logger.info(f"夸夸生成完成 | user_id={user_id} | response_length={len(response.content)}")
     
@@ -125,6 +126,7 @@ async def chat_stream(
     logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
     
     # 判断输入类型
+    input_type: Literal["text_only", "image_only", "mixed"]
     has_text = bool(request.text and request.text.strip())
     has_image = bool(request.image and request.image.strip())
 
@@ -196,7 +198,7 @@ async def chat_stream(
                 "data": json.dumps({"message": str(e)}, ensure_ascii=False),
             }
 
-    return EventSourceResponse(event_generator())  # type: ignore[arg-type]
+    return EventSourceResponse(event_generator())
 
 
 async def _try_get_ab_test_prompt(
@@ -207,6 +209,7 @@ async def _try_get_ab_test_prompt(
         ab_service = ABTestService()
         return await ab_service.get_prompt_for_user(scene, user_id, session)
     except Exception:
+        logger.warning(f"AB 测试 Prompt 获取降级 | scene={scene} | user_id={user_id}", exc_info=True)
         return None
 
 
@@ -220,6 +223,7 @@ async def _try_get_db_prompt(
             scene, input_type, session
         )
     except Exception:
+        logger.warning(f"数据库 Prompt 获取降级 | scene={scene} | input_type={input_type}", exc_info=True)
         return None
 
 
@@ -241,6 +245,8 @@ async def _get_user_memory(
         memory_service = MemoryService(session, mcp_client)
         return await memory_service.get_memory_summary(user_id, session_id or None)
     except Exception:
+        # 记忆获取失败时降级为无记忆模式，不影响核心夸夸功能
+        logger.warning(f"记忆获取降级 | user_id={user_id} | session_id={session_id}", exc_info=True)
         return None
 
 
@@ -316,8 +322,8 @@ async def _update_session_after_chat(
                 emotion=None,
             )
     except Exception:
-        # 静默失败，不影响主流程
-        pass
+        # 后台任务失败不影响主流程，但必须记录日志
+        logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id}")
 
 
 async def _update_session_after_chat_bg(
@@ -328,6 +334,18 @@ async def _update_session_after_chat_bg(
 ) -> None:
     """后台任务包装，确保异常不会导致未处理的 task 异常"""
     await _update_session_after_chat(user_id, session_id, request, response)
+
+
+def _handle_task_exception(task: asyncio.Task[Any]) -> None:
+    """处理后台任务中未捕获的异常，防止 'Task exception was never retrieved' 警告"""
+    if not task.cancelled():
+        try:
+            exception = task.exception()
+            if exception:
+                logger.error(f"后台任务未捕获异常 | error={exception}")
+        except asyncio.InvalidStateError:
+            # 任务尚未完成
+            pass
 
 
 def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:

@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.models import ABTest, Prompt
 from ..models.schemas import ABTestCreate, ABTestResponse, ABTestUpdate, PromptContent
 from ..core.exceptions import DatabaseException, NotFoundException, ValidationException
+from ..core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ABTestService:
@@ -163,6 +166,7 @@ class ABTestService:
                 user=prompt.user_prompt,
             )
         except Exception:
+            logger.warning(f"AB 测试 Prompt 获取降级 | scene={scene} | user_id={user_id}", exc_info=True)
             return None
 
     async def _validate_prompt_exists(

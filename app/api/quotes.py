@@ -56,8 +56,8 @@ def get_quote_service() -> QuoteService:
 
 
 # ---------- 依赖注入类型别名 ----------
-QuoteServiceDep = Annotated[QuoteService, Depends(get_quote_service)]
-MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
+type QuoteServiceDep = Annotated[QuoteService, Depends(get_quote_service)]
+type MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 
 
 @router.get("/random", response_model=ApiResponse[QuoteResponse])

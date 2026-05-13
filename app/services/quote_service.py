@@ -19,8 +19,11 @@ from ..prompts.templates import (
     USER_PROMPTS
 )
 from ..core.exceptions import AIServiceException
+from ..core.logging import get_logger
 from ..services.memory_service import MemoryService
 from ..models.schemas import MemorySummary
+
+logger = get_logger(__name__)
 
 
 class QuoteService:
@@ -79,7 +82,7 @@ class QuoteService:
                 try:
                     memory_summary = await memory_service.get_memory_summary(user_id, None)
                 except Exception:
-                    pass
+                    logger.warning(f"记忆注入降级（随机夸夸）| user_id={user_id}", exc_info=True)
             
             # 如果有用户偏好，注入到 system prompt
             if memory_summary:
@@ -143,7 +146,7 @@ class QuoteService:
                 try:
                     memory_summary = await memory_service.get_memory_summary(user_id, None)
                 except Exception:
-                    pass
+                    logger.warning(f"记忆注入降级（场景夸夸）| user_id={user_id} | scene={scene}", exc_info=True)
             
             # 如果有用户偏好，注入到 system prompt
             if memory_summary:

@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.models import Prompt
 from ..models.schemas import PromptContent, PromptResponse, PromptUpdate
 from ..core.exceptions import DatabaseException, NotFoundException
+from ..core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PromptService:
@@ -124,6 +127,7 @@ class PromptService:
                 return PromptContent(system=row.system_prompt, user=row.user_prompt)
             return None
         except Exception:
+            logger.warning(f"获取活跃 Prompt 降级 | scene={scene} | input_type={input_type}", exc_info=True)
             return None
 
     def _to_response(self, row: Prompt) -> PromptResponse:
