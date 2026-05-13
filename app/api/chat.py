@@ -88,29 +88,36 @@ async def chat(
         X-Trace-ID: 请求追踪 ID（可选）
     """
     logger.info(f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
-    
+    logger.debug(f"用户输入详情 | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
+
     if not session_id:
         session_id = f"session_{int(time.time() * 1000)}"
-    
+
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
     )
-    
+    logger.debug(f"AB测试结果 | user_id={user_id} | has_override={prompt_override is not None}")
+
     # 获取用户记忆汇总
     memory_summary = await _get_user_memory(user_id, session_id, session)
-    
+    if memory_summary:
+        logger.debug(f"记忆注入详情 | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
+    else:
+        logger.debug(f"无记忆注入 | user_id={user_id}")
+
     response = await service.chat(
-        request, 
+        request,
         prompt_override=prompt_override,
         memory_summary=memory_summary
     )
-    
+
     # 更新会话记录（后台任务，不阻塞响应）
     task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
     task.add_done_callback(_handle_task_exception)
-    
+
     logger.info(f"夸夸生成完成 | user_id={user_id} | response_length={len(response.content)}")
+    logger.debug(f"AI响应内容 | user_id={user_id} | content={response.content[:200]}")
     
     return ApiResponse(data=response)
 
@@ -134,6 +141,7 @@ async def chat_stream(
         X-Trace-ID: 请求追踪 ID（可选）
     """
     logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
+    logger.debug(f"用户输入详情(流式) | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
     
     if not session_id:
         session_id = f"session_{int(time.time() * 1000)}"
@@ -154,9 +162,14 @@ async def chat_stream(
     prompt_override = await _try_get_ab_test_prompt(
         request.scene, user_id, session
     )
-    
+    logger.debug(f"AB测试结果(流式) | user_id={user_id} | has_override={prompt_override is not None}")
+
     # 获取用户记忆汇总
     memory_summary = await _get_user_memory(user_id, session_id, session)
+    if memory_summary:
+        logger.debug(f"记忆注入详情(流式) | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
+    else:
+        logger.debug(f"无记忆注入(流式) | user_id={user_id}")
 
     if prompt_override:
         system_prompt = prompt_override["system"]
@@ -190,12 +203,11 @@ async def chat_stream(
                     "data": json.dumps({"content": chunk}, ensure_ascii=False),
                 }
 
-            # 发送完成事件
+            # 发送完成事件（不含 content，避免前端重复追加）
             yield {
                 "event": "done",
                 "data": json.dumps(
                     {
-                        "content": full_content,
                         "scene": request.scene,
                         "has_image": has_image,
                         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -204,6 +216,7 @@ async def chat_stream(
                 ),
             }
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
+            logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200]}")
             
             response = ChatResponse(content=full_content, scene=request.scene)
             task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
@@ -275,41 +288,40 @@ async def _update_session_after_chat(
 ) -> None:
     """
     聊天结束后更新会话记录
-    
+
     将用户的消息和 AI 的回复都记录到会话中，
     用于后续的上下文追踪和记忆提取。
     """
     if not session_id:
         logger.debug(f"会话持久化跳过 | session_id 为空")
         return
-    
-    logger.debug(f"会话持久化开始 | user_id={user_id} | session_id={session_id}")
-    
+
+    logger.info(f"会话持久化开始 | user_id={user_id} | session_id={session_id}")
+
     try:
         from ..models.database import get_db
-        
+
         async with get_db() as db_session:
-            logger.debug("数据库连接已获取")
             memory_service = MemoryService(db_session)
-            
+
             # 获取或创建会话
             session_obj = await memory_service.get_or_create_session(
                 user_id=user_id,
                 session_id=session_id,
                 scene=request.scene
             )
-            logger.debug(f"会话对象已就绪 | id={session_obj.id} | existing_messages={session_obj.messages != '[]'}")
-            
+            logger.debug(f"会话对象已就绪 | user_id={user_id} | session_id={session_id} | is_new={session_obj.messages == '[]'}")
+
             # 解析现有消息
             messages: list[dict[str, str]] = []
             if session_obj.messages:
                 try:
                     messages = json.loads(session_obj.messages)
-                    logger.debug(f"已解析历史消息 | count={len(messages)}")
+                    logger.debug(f"已解析历史消息 | user_id={user_id} | count={len(messages)}")
                 except json.JSONDecodeError:
                     messages = []
-                    logger.debug("历史消息 JSON 解析失败，重置为空")
-            
+                    logger.warning(f"历史消息 JSON 解析失败，重置为空 | user_id={user_id}")
+
             # 添加用户消息
             if request.text:
                 messages.append({
@@ -317,36 +329,40 @@ async def _update_session_after_chat(
                     "content": request.text,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
-                logger.debug(f"添加用户消息 | content_preview={request.text[:50]}")
-            
+                logger.debug(f"添加用户消息 | user_id={user_id} | content={request.text[:100]}")
+
             # 添加 AI 回复
             messages.append({
                 "role": "assistant",
                 "content": response.content,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
-            logger.debug(f"添加 AI 回复 | content_preview={response.content[:50]}")
-            
+            logger.debug(f"添加AI回复 | user_id={user_id} | content={response.content[:100]}")
+
             # 保留最近 10 条消息（避免过长）
             before_trim = len(messages)
             messages = messages[-10:]
             if before_trim > 10:
-                logger.debug(f"消息截断 | before={before_trim} | after=10")
-            
+                logger.debug(f"消息截断 | user_id={user_id} | before={before_trim} | after=10")
+
             # 更新会话
             session_obj.messages = json.dumps(messages, ensure_ascii=False)
             await db_session.commit()
-            logger.debug(f"会话持久化完成 | messages_count={len(messages)}")
-            
+            logger.info(f"会话持久化完成 | user_id={user_id} | session_id={session_id} | total_messages={len(messages)}")
+
             # 提取并添加里程碑（如果检测到成就）
             if request.text:
+                logger.debug(f"开始里程碑提取检测 | user_id={user_id} | text={request.text[:100]}")
                 milestone = await memory_service.extract_and_add_milestone(user_id, request.text)
                 if milestone:
-                    logger.debug(f"里程碑已提取 | milestone_id={milestone.id}")
+                    logger.info(f"里程碑已提取 | user_id={user_id} | milestone_id={milestone.id} | content={milestone.content[:100]}")
+                else:
+                    logger.debug(f"未检测到里程碑 | user_id={user_id}")
             else:
-                logger.debug("无文本输入，跳过里程碑提取")
+                logger.debug(f"无文本输入，跳过里程碑提取 | user_id={user_id}")
 
-            # 保存到 supermemory 语义记忆（降级逻辑已内置于 MCPClient.call()）
+            # 保存到 supermemory 语义记忆
+            logger.debug(f"开始保存语义记忆 | user_id={user_id}")
             memory_service_sm = MemoryService(db_session, mcp_client)
             await memory_service_sm.save_chat_to_supermemory(
                 user_id=user_id,
@@ -355,7 +371,7 @@ async def _update_session_after_chat(
                 scene=request.scene,
                 emotion=None,
             )
-            logger.debug("语义记忆保存完成")
+            logger.debug(f"语义记忆保存完成 | user_id={user_id}")
     except Exception:
         # 后台任务失败不影响主流程，但必须记录日志
         logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id}")

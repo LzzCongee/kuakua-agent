@@ -207,16 +207,16 @@ class MemoryService:
     async def update_user_profile(self, user_id: str, data: UserProfileUpdate) -> UserProfile:
         """
         更新用户偏好
-        
+
         Args:
             user_id: 用户ID
             data: 偏好更新数据
-            
+
         Returns:
             UserProfile: 更新后的用户偏好
         """
         profile = await self.get_or_create_profile(user_id)
-        
+
         # 更新字段（只更新非 None 的字段）
         updated_fields = []
         if data.prefer_scene is not None:
@@ -234,13 +234,14 @@ class MemoryService:
         if data.last_emotion is not None:
             profile.last_emotion = data.last_emotion
             updated_fields.append("last_emotion")
-        
+
         # 更新活跃时间和对话计数
         profile.last_active = datetime.now(timezone.utc)
         profile.conversation_count = (profile.conversation_count or 0) + 1
-        
+
         await self.session.flush()
-        logger.debug(f"用户偏好更新完成 | user_id={user_id} | 更新字段={updated_fields} | conversation_count={profile.conversation_count}")
+        logger.info(f"用户偏好更新完成 | user_id={user_id} | 更新字段={updated_fields} | conversation_count={profile.conversation_count}")
+        logger.debug(f"用户偏好详情 | user_id={user_id} | prefer_scene={profile.prefer_scene} | prefer_style={profile.prefer_style} | last_emotion={profile.last_emotion}")
         return profile
 
     async def increment_favorite_count(self, user_id: str) -> UserProfile:
@@ -320,7 +321,7 @@ class MemoryService:
         )
         self.session.add(milestone)
         await self.session.flush()
-        logger.debug(f"里程碑添加成功 | user_id={data.user_id} | importance={data.importance} | source={data.source} | content_preview={data.content[:50]}")
+        logger.info(f"里程碑添加成功 | user_id={data.user_id} | importance={data.importance} | source={data.source} | content_preview={data.content[:50]}")
         return milestone
 
     async def extract_and_add_milestone(self, user_id: str, content: str) -> Milestone | None:
@@ -343,17 +344,17 @@ class MemoryService:
         
         # 简单检测是否有成就相关关键词
         has_achievement = any(kw in content for kw in achievement_keywords)
-        
+
         if has_achievement:
             matched_kw = [kw for kw in achievement_keywords if kw in content]
-            logger.debug(f"检测到成就关键词 | user_id={user_id} | 关键词={matched_kw}")
+            logger.info(f"检测到成就关键词 | user_id={user_id} | 关键词={matched_kw}")
             return await self.add_milestone(MilestoneCreate(
                 user_id=user_id,
                 content=content[:200],  # 截取前200字符
                 source="user_input",
                 importance=2
             ))
-        
+
         logger.debug(f"未检测到成就内容 | user_id={user_id}")
         return None
 
@@ -430,7 +431,7 @@ class MemoryService:
         """
         content = f"用户说：{user_message}\nAI回复：{ai_response}"
 
-        logger.debug(f"保存语义记忆 | user_id={user_id} | scene={scene} | message_length={len(user_message)} | response_length={len(ai_response)}")
+        logger.info(f"保存语义记忆 | user_id={user_id} | scene={scene} | message_length={len(user_message)} | response_length={len(ai_response)}")
         await self.mcp.call(
             "add_memory",
             content=content,
@@ -484,7 +485,7 @@ class MemoryService:
                     avoid_words = []
         
         logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)}")
-        
+
         # 获取最近会话
         recent_messages: list[dict[str, Any]] = []
         if session_id:
@@ -497,15 +498,15 @@ class MemoryService:
             logger.debug(f"记忆汇总: 会话 | session_id={session_id} | messages_count={len(recent_messages)}")
         else:
             logger.debug("记忆汇总: 无 session_id，跳过会话消息")
-        
+
         # 获取高光里程碑
         milestones = await self.get_milestones(user_id, limit=5)
         milestone_contents = [m.content for m in milestones]
         logger.debug(f"记忆汇总: 里程碑 | count={len(milestone_contents)}")
-        
+
         # 获取语义记忆（supermemory）
         semantic_memories = await self._get_semantic_memories(user_id)
-        logger.debug(f"记忆汇总: 语义记忆 | count={len(semantic_memories)}")
+        logger.info(f"记忆汇总完成 | user_id={user_id} | prefer_scene={prefer_scene} | tags={len(user_tags)} | milestones={len(milestone_contents)} | semantic={len(semantic_memories)}")
         
         return MemorySummary(
             prefer_scene=prefer_scene,
