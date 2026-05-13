@@ -12,11 +12,9 @@ from typing import Literal, Optional
 from ..models.schemas import QuoteResponse
 from ..providers.base import BaseAIProvider, AIProviderException
 from ..prompts.templates import (
-    SceneType, 
-    get_prompt, 
+    SceneType,
+    get_prompt,
     get_scene_by_value,
-    SYSTEM_PROMPTS,
-    USER_PROMPTS
 )
 from ..core.exceptions import AIServiceException
 from ..core.logging import get_logger

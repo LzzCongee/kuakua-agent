@@ -96,6 +96,38 @@ class Settings(BaseSettings):
     # AI 视觉模型名称，用于处理图片等视觉任务
     ai_vision_model: str = Field(default="Qwen/Qwen2.5-VL-72B-Instruct", description="AI 视觉模型名称")
 
+    # ==================== AI 记忆提取配置 ====================
+
+    # 提取用模型名称（可以和生成模型相同，也可以用更便宜的模型）
+    ai_extract_model: str = Field(
+        default="deepseek-ai/DeepSeek-V3.2",
+        description="记忆提取用模型名称"
+    )
+
+    # 是否启用 AI 提取（false 时回退到纯关键词匹配）
+    ai_extract_enabled: bool = Field(
+        default=True,
+        description="是否启用 AI 记忆提取"
+    )
+
+    # 是否启用关键词兜底层（false 时纯 LLM 提取）
+    ai_extract_keyword_fallback: bool = Field(
+        default=True,
+        description="是否启用关键词兜底提取"
+    )
+
+    # 提取 LLM 的 temperature（越低越确定性）
+    ai_extract_temperature: float = Field(
+        default=0.1,
+        description="提取 LLM 的 temperature"
+    )
+
+    # 提取 LLM 的 max_tokens
+    ai_extract_max_tokens: int = Field(
+        default=200,
+        description="提取 LLM 的 max_tokens"
+    )
+
     # ==================== 数据库配置 ====================
     
     # 数据库连接 URL，默认为本地 SQLite 数据库

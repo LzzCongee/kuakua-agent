@@ -33,11 +33,13 @@ from ..models.schemas import (
     ChatResponse,
     MemorySummary,
     PromptContent,
+    UserProfileUpdate,
 )
 from ..prompts.templates import get_chat_prompt
 from ..providers.qwen import QwenProvider
 from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
+from ..services.memory_extractor import MemoryExtractor
 from ..services.memory_service import MemoryService
 from ..services.prompt_service import PromptService
 
@@ -365,16 +367,49 @@ async def _update_session_after_chat(
             await db_session.commit()
             logger.info(f"会话持久化完成 | user_id={user_id} | session_id={session_id} | total_messages={len(messages)}")
 
-            # 提取并添加里程碑（如果检测到成就）
+            # 混合提取：情绪 + 偏好 + 里程碑（关键词兜底 + LLM 主力）
+            extraction_result = None
             if request.text:
-                logger.debug(f"开始里程碑提取检测 | user_id={user_id} | text={request.text[:100]}")
-                milestone = await memory_service.extract_and_add_milestone(user_id, request.text)
-                if milestone:
-                    logger.info(f"里程碑已提取 | user_id={user_id} | milestone_id={milestone.id} | content={milestone.content[:100]}")
-                else:
-                    logger.debug(f"未检测到里程碑 | user_id={user_id}")
+                logger.debug(f"开始混合记忆提取 | user_id={user_id} | text={request.text[:100]}")
+                settings = get_settings()
+                provider = QwenProvider(
+                    api_key=settings.modelscope_api_key,
+                    base_url=settings.ai_base_url,
+                    model=settings.ai_extract_model,
+                )
+                extractor = MemoryExtractor.from_settings(provider)
+                extraction_result = await extractor.extract(
+                    user_message=request.text,
+                    ai_response=response.content,
+                )
+                logger.info(
+                    f"记忆提取完成 | user_id={user_id} | source={extraction_result.source} | "
+                    f"emotion={extraction_result.emotion} | milestone={extraction_result.has_milestone} | "
+                    f"tags={extraction_result.tags}"
+                )
+
+                # 写入里程碑
+                if extraction_result.has_milestone and extraction_result.milestone_content:
+                    from ..models.schemas import MilestoneCreate
+                    milestone = await memory_service.add_milestone(MilestoneCreate(
+                        user_id=user_id,
+                        content=extraction_result.milestone_content,
+                        source=extraction_result.source,
+                        importance=extraction_result.milestone_importance,
+                    ))
+                    logger.info(f"里程碑已写入 | user_id={user_id} | milestone_id={milestone.id}")
+
+                # 更新用户画像（情绪、标签、场景倾向）
+                profile_update = UserProfileUpdate(
+                    last_emotion=extraction_result.emotion if extraction_result.emotion != "neutral" else None,
+                    user_tags=extraction_result.tags if extraction_result.tags else None,
+                    prefer_scene=extraction_result.scene_hint,
+                )
+                if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
+                    await memory_service.update_user_profile(user_id, profile_update)
+                    logger.info(f"用户画像已更新 | user_id={user_id} | emotion={profile_update.last_emotion} | tags={profile_update.user_tags}")
             else:
-                logger.debug(f"无文本输入，跳过里程碑提取 | user_id={user_id}")
+                logger.debug(f"无文本输入，跳过记忆提取 | user_id={user_id}")
 
             # 保存到 supermemory 语义记忆
             logger.debug(f"开始保存语义记忆 | user_id={user_id}")
@@ -384,7 +419,7 @@ async def _update_session_after_chat(
                 user_message=request.text or "",
                 ai_response=response.content,
                 scene=request.scene,
-                emotion=None,
+                emotion=extraction_result.emotion if extraction_result else None,
             )
             logger.debug(f"语义记忆保存完成 | user_id={user_id}")
     except Exception:
