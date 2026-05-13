@@ -191,17 +191,32 @@ async def chat_stream(
         try:
             full_content = ""
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
-            async for chunk in service.provider.generate_stream(
-                prompt=request.text or "",
-                system_prompt=system_prompt,
-                temperature=0.7,
-                max_tokens=150,
-            ):
-                full_content += chunk
+
+            if has_image:
+                # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
+                logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type}")
+                content = await service._generate_multimodal(
+                    system_prompt=system_prompt,
+                    text=request.text if has_text else None,
+                    image=request.image,
+                )
+                full_content = content
                 yield {
                     "event": "chunk",
-                    "data": json.dumps({"content": chunk}, ensure_ascii=False),
+                    "data": json.dumps({"content": content}, ensure_ascii=False),
                 }
+            else:
+                async for chunk in service.provider.generate_stream(
+                    prompt=request.text or "",
+                    system_prompt=system_prompt,
+                    temperature=0.7,
+                    max_tokens=150,
+                ):
+                    full_content += chunk
+                    yield {
+                        "event": "chunk",
+                        "data": json.dumps({"content": chunk}, ensure_ascii=False),
+                    }
 
             # 发送完成事件（不含 content，避免前端重复追加）
             yield {

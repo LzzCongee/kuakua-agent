@@ -111,6 +111,17 @@ class ChatRequest(BaseModel):
         """
         if not self.text and not self.image:
             raise ValueError("text 和 image 至少要有一个不为空")
+
+        if self.image:
+            img = self.image.strip()
+            if not img:
+                raise ValueError("image 字段不能为空字符串")
+            if img.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+                raise ValueError(
+                    "image 字段似乎是文件名，请传入 base64 编码的图片数据，"
+                    "而非文件路径"
+                )
+
         return self
 
 
