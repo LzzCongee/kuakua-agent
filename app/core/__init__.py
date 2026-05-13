@@ -5,12 +5,12 @@
 """
 
 from app.core.exceptions import (
-    AppException,
     AIServiceException,
+    AppException,
     DatabaseException,
     NotFoundException,
     ValidationException,
-    register_exception_handlers
+    register_exception_handlers,
 )
 
 __all__ = [

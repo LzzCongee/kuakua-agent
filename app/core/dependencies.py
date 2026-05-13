@@ -9,11 +9,11 @@
 - 与日志系统集成，支持 trace_id 追踪
 """
 
-from typing import Annotated, Optional, TYPE_CHECKING
+from typing import Annotated, Optional
 
 from fastapi import Depends, Header, Request
 
-from app.core.logging import get_logger
+from ..core.logging import get_logger
 
 logger = get_logger(__name__)
 

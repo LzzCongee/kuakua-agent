@@ -280,12 +280,16 @@ async def _update_session_after_chat(
     用于后续的上下文追踪和记忆提取。
     """
     if not session_id:
+        logger.debug(f"会话持久化跳过 | session_id 为空")
         return
+    
+    logger.debug(f"会话持久化开始 | user_id={user_id} | session_id={session_id}")
     
     try:
         from ..models.database import get_db
         
         async with get_db() as db_session:
+            logger.debug("数据库连接已获取")
             memory_service = MemoryService(db_session)
             
             # 获取或创建会话
@@ -294,14 +298,17 @@ async def _update_session_after_chat(
                 session_id=session_id,
                 scene=request.scene
             )
+            logger.debug(f"会话对象已就绪 | id={session_obj.id} | existing_messages={session_obj.messages != '[]'}")
             
             # 解析现有消息
             messages: list[dict[str, str]] = []
             if session_obj.messages:
                 try:
                     messages = json.loads(session_obj.messages)
+                    logger.debug(f"已解析历史消息 | count={len(messages)}")
                 except json.JSONDecodeError:
                     messages = []
+                    logger.debug("历史消息 JSON 解析失败，重置为空")
             
             # 添加用户消息
             if request.text:
@@ -310,6 +317,7 @@ async def _update_session_after_chat(
                     "content": request.text,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
+                logger.debug(f"添加用户消息 | content_preview={request.text[:50]}")
             
             # 添加 AI 回复
             messages.append({
@@ -317,17 +325,26 @@ async def _update_session_after_chat(
                 "content": response.content,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
+            logger.debug(f"添加 AI 回复 | content_preview={response.content[:50]}")
             
             # 保留最近 10 条消息（避免过长）
+            before_trim = len(messages)
             messages = messages[-10:]
+            if before_trim > 10:
+                logger.debug(f"消息截断 | before={before_trim} | after=10")
             
             # 更新会话
             session_obj.messages = json.dumps(messages, ensure_ascii=False)
             await db_session.commit()
+            logger.debug(f"会话持久化完成 | messages_count={len(messages)}")
             
             # 提取并添加里程碑（如果检测到成就）
             if request.text:
-                _ = await memory_service.extract_and_add_milestone(user_id, request.text)
+                milestone = await memory_service.extract_and_add_milestone(user_id, request.text)
+                if milestone:
+                    logger.debug(f"里程碑已提取 | milestone_id={milestone.id}")
+            else:
+                logger.debug("无文本输入，跳过里程碑提取")
 
             # 保存到 supermemory 语义记忆（降级逻辑已内置于 MCPClient.call()）
             memory_service_sm = MemoryService(db_session, mcp_client)
@@ -338,6 +355,7 @@ async def _update_session_after_chat(
                 scene=request.scene,
                 emotion=None,
             )
+            logger.debug("语义记忆保存完成")
     except Exception:
         # 后台任务失败不影响主流程，但必须记录日志
         logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id}")

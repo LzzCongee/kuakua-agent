@@ -10,11 +10,11 @@ from typing import Union
 from ..config import get_settings
 from ..models.schemas import MemorySummary
 
-# SQL 实现
-from ..services.memory_service import MemoryService as SQLMemoryService
-
 # CloudBase 实现
 from ..services.cloudbase_memory import CloudBaseMemoryService
+
+# SQL 实现
+from ..services.memory_service import MemoryService as SQLMemoryService
 
 # 统一类型别名
 MemoryServiceType = Union[SQLMemoryService, CloudBaseMemoryService]

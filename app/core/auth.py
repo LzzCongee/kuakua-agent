@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Header, status
+from fastapi import Header, HTTPException, status
 
 from app.config import get_settings
 

@@ -190,7 +190,7 @@ class Settings(BaseSettings):
         return Path(__file__).parent.parent / self.log_dir
 
 
-@lru_cache()
+@lru_cache()  # noqa: UP011
 def get_settings() -> Settings:
     """
     获取配置实例（使用 lru_cache 缓存，避免重复读取）

@@ -36,29 +36,28 @@ handlers:
     stream: ext://sys.stdout
     filters: [trace_id]
   
-  # 按日期分割的文件处理器
+  # 文件处理器（每天轮转，保留 7 天）
   file:
     class: logging.handlers.TimedRotatingFileHandler
     level: INFO
     formatter: standard
-    # 日志目录（相对于项目根目录）
     filename: logs/kuakua-agent.log
-    # 按天分割（使用分钟模式以在文件名中包含时分），保留 30 天
-    when: M
-    interval: 1440
-    backupCount: 30
+    # 按天轮转 at midnight
+    when: MIDNIGHT
+    interval: 1
+    backupCount: 7
     encoding: utf-8
     filters: [trace_id]
-  
-  # 错误日志单独文件
+    
+  # 错误日志单独文件（每天轮转，保留 7 天）
   error_file:
     class: logging.handlers.TimedRotatingFileHandler
     level: ERROR
     formatter: detailed
     filename: logs/kuakua-agent-error.log
-    when: M
-    interval: 1440
-    backupCount: 30
+    when: MIDNIGHT
+    interval: 1
+    backupCount: 7
     encoding: utf-8
     filters: [trace_id]
 

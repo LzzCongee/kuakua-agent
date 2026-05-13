@@ -7,8 +7,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.logging import get_logger
-from app.models.schemas import ApiResponse
+from ..core.logging import get_logger
+from ..models.schemas import ApiResponse
 
 
 class AppException(Exception):

@@ -10,9 +10,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal
 
+from ..core.logging import get_logger
 from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
-from ..providers.base import BaseAIProvider
 from ..prompts.templates import get_chat_prompt
+from ..providers.base import BaseAIProvider
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from ..services.memory_service import MemoryService
@@ -92,28 +95,39 @@ class ChatService:
         else:
             input_type = "text_only"
         
+        logger.debug(f"输入类型判定 | has_text={has_text} | has_image={has_image} | input_type={input_type}")
+        
         # 获取对应的 system prompt
         if prompt_override:
             system_prompt = prompt_override["system"]
+            logger.debug(f"使用 AB 测试 Prompt | scene={request.scene}")
         else:
             prompt_template = get_chat_prompt(input_type)
             system_prompt = prompt_template["system"]
+            logger.debug(f"使用默认 Prompt | input_type={input_type}")
         
         # 注入记忆上下文
         if memory_summary:
             system_prompt = self._inject_memory(system_prompt, memory_summary)
+            logger.debug(f"记忆注入完成 | 场景={memory_summary.prefer_scene} | 标签数={len(memory_summary.user_tags)} | 里程碑数={len(memory_summary.milestones)}")
+        else:
+            logger.debug("无记忆注入")
         
         # 根据输入类型调用不同的生成方法
         if input_type == "text_only":
             # 根据逻辑，text_only 模式时 text 一定不为空
             assert request.text is not None
+            logger.debug("开始纯文字生成")
             content = await self._generate_text_only(system_prompt, request.text)
+            logger.debug(f"纯文字生成完成 | content_length={len(content)}")
         else:
+            logger.debug(f"开始多模态生成 | text={has_text} | image={has_image}")
             content = await self._generate_multimodal(
                 system_prompt, 
                 request.text if has_text else None,
                 request.image if has_image else None
             )
+            logger.debug(f"多模态生成完成 | content_length={len(content)}")
         
         return ChatResponse(
             content=content,
@@ -186,6 +200,7 @@ class ChatService:
         """
         # 组合 system prompt 和用户文字
         full_prompt = f"{system_prompt}\n\n用户说：{text}"
+        logger.debug(f"调用 provider.generate | prompt_length={len(full_prompt)} | text_length={len(text)}")
         return await self.provider.generate(full_prompt)
     
     async def _generate_multimodal(
@@ -234,6 +249,7 @@ class ChatService:
                 "type": "image_url",
                 "image_url": {"url": image_url}
             })
+            logger.debug(f"图片处理完成 | has_data_uri_prefix={image.startswith('data:image')}")
         
         # 添加 user message
         messages.append({
@@ -242,6 +258,7 @@ class ChatService:
         })
         
         # 调用多模态生成
+        logger.debug(f"调用 provider.generate_multimodal | messages_count={len(messages)} | 模型={self.vision_model}")
         return await self.provider.generate_multimodal(
             messages=messages,
             model=self.vision_model

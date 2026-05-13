@@ -16,7 +16,7 @@ supermemory MCP Server 提供语义记忆功能：
 
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional  # noqa: UP035
 
 from app.config import get_settings
 from app.core.logging import get_logger

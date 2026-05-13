@@ -18,12 +18,15 @@ from typing import Any
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.logging import get_logger
 from ..models.models import Session, UserProfile, Milestone 
 from ..models.schemas import (  
     MemorySummary,
     UserProfileUpdate,
     MilestoneCreate,
 )
+
+logger = get_logger(__name__)
 
 
 class MemoryService:
@@ -74,6 +77,7 @@ class MemoryService:
         session_obj = result.scalar_one_or_none()
         
         if not session_obj:
+            logger.debug(f"创建新会话 | user_id={user_id} | session_id={session_id} | scene={scene}")
             session_obj = Session(
                 session_id=session_id,
                 user_id=user_id,
@@ -82,6 +86,8 @@ class MemoryService:
             )
             self.session.add(session_obj)
             await self.session.flush()
+        else:
+            logger.debug(f"获取已有会话 | session_id={session_id} | user_id={session_obj.user_id} | scene={session_obj.scene}")
         
         return session_obj
 
@@ -97,7 +103,9 @@ class MemoryService:
         """
         stmt = select(Session).where(Session.session_id == session_id)
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        session_obj = result.scalar_one_or_none()
+        logger.debug(f"查询会话 | session_id={session_id} | found={session_obj is not None}")
+        return session_obj
 
     async def update_session(self, session_id: str, messages: list[dict[str, Any]]) -> Session | None:
         """
@@ -115,6 +123,9 @@ class MemoryService:
             session.messages = json.dumps(messages, ensure_ascii=False)
             session.updated_at = datetime.now(timezone.utc)
             await self.session.flush()
+            logger.debug(f"会话消息已更新 | session_id={session_id} | messages_count={len(messages)}")
+        else:
+            logger.debug(f"会话不存在，无法更新 | session_id={session_id}")
         return session
 
     async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[Session]:
@@ -135,7 +146,9 @@ class MemoryService:
             .limit(limit)
         )
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        sessions = list(result.scalars().all())
+        logger.debug(f"查询用户会话列表 | user_id={user_id} | limit={limit} | count={len(sessions)}")
+        return sessions
 
     async def cleanup_expired_sessions(self, hours: int = 2) -> int:
         """
@@ -150,6 +163,7 @@ class MemoryService:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         stmt = delete(Session).where(Session.created_at < cutoff)
         result = await self.session.execute(stmt)
+        logger.debug(f"清理过期会话 | hours={hours} | cutoff={cutoff} | deleted={result.rowcount}")
         return result.rowcount
 
     # ==================== 用户偏好记忆 ====================
@@ -166,7 +180,9 @@ class MemoryService:
         """
         stmt = select(UserProfile).where(UserProfile.user_id == user_id)
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        profile = result.scalar_one_or_none()
+        logger.debug(f"查询用户偏好 | user_id={user_id} | found={profile is not None}")
+        return profile
 
     async def get_or_create_profile(self, user_id: str) -> UserProfile:
         """
@@ -180,9 +196,12 @@ class MemoryService:
         """
         profile = await self.get_user_profile(user_id)
         if not profile:
+            logger.debug(f"创建新用户偏好 | user_id={user_id}")
             profile = UserProfile(user_id=user_id)
             self.session.add(profile)
             await self.session.flush()
+        else:
+            logger.debug(f"获取已有用户偏好 | user_id={user_id}")
         return profile
 
     async def update_user_profile(self, user_id: str, data: UserProfileUpdate) -> UserProfile:
@@ -199,22 +218,29 @@ class MemoryService:
         profile = await self.get_or_create_profile(user_id)
         
         # 更新字段（只更新非 None 的字段）
+        updated_fields = []
         if data.prefer_scene is not None:
             profile.prefer_scene = data.prefer_scene
+            updated_fields.append("prefer_scene")
         if data.prefer_style is not None:
             profile.prefer_style = data.prefer_style
+            updated_fields.append("prefer_style")
         if data.user_tags is not None:
             profile.user_tags = json.dumps(data.user_tags, ensure_ascii=False)
+            updated_fields.append("user_tags")
         if data.avoid_words is not None:
             profile.avoid_words = json.dumps(data.avoid_words, ensure_ascii=False)
+            updated_fields.append("avoid_words")
         if data.last_emotion is not None:
             profile.last_emotion = data.last_emotion
+            updated_fields.append("last_emotion")
         
         # 更新活跃时间和对话计数
         profile.last_active = datetime.now(timezone.utc)
         profile.conversation_count = (profile.conversation_count or 0) + 1
         
         await self.session.flush()
+        logger.debug(f"用户偏好更新完成 | user_id={user_id} | 更新字段={updated_fields} | conversation_count={profile.conversation_count}")
         return profile
 
     async def increment_favorite_count(self, user_id: str) -> UserProfile:
@@ -231,6 +257,7 @@ class MemoryService:
         profile.favorite_count = (profile.favorite_count or 0) + 1
         profile.last_active = datetime.now(timezone.utc)
         await self.session.flush()
+        logger.debug(f"收藏计数增加 | user_id={user_id} | favorite_count={profile.favorite_count}")
         return profile
 
     async def update_prefer_scene(self, user_id: str, scene: str) -> UserProfile:
@@ -248,6 +275,7 @@ class MemoryService:
         profile.prefer_scene = scene
         profile.last_active = datetime.now(timezone.utc)
         await self.session.flush()
+        logger.debug(f"偏好场景更新 | user_id={user_id} | scene={scene}")
         return profile
 
     # ==================== 高光里程碑记忆 ====================
@@ -270,7 +298,9 @@ class MemoryService:
             .limit(limit)
         )
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        milestones = list(result.scalars().all())
+        logger.debug(f"查询里程碑 | user_id={user_id} | limit={limit} | count={len(milestones)}")
+        return milestones
 
     async def add_milestone(self, data: MilestoneCreate) -> Milestone:
         """
@@ -290,6 +320,7 @@ class MemoryService:
         )
         self.session.add(milestone)
         await self.session.flush()
+        logger.debug(f"里程碑添加成功 | user_id={data.user_id} | importance={data.importance} | source={data.source} | content_preview={data.content[:50]}")
         return milestone
 
     async def extract_and_add_milestone(self, user_id: str, content: str) -> Milestone | None:
@@ -314,6 +345,8 @@ class MemoryService:
         has_achievement = any(kw in content for kw in achievement_keywords)
         
         if has_achievement:
+            matched_kw = [kw for kw in achievement_keywords if kw in content]
+            logger.debug(f"检测到成就关键词 | user_id={user_id} | 关键词={matched_kw}")
             return await self.add_milestone(MilestoneCreate(
                 user_id=user_id,
                 content=content[:200],  # 截取前200字符
@@ -321,6 +354,7 @@ class MemoryService:
                 importance=2
             ))
         
+        logger.debug(f"未检测到成就内容 | user_id={user_id}")
         return None
 
     # ==================== supermemory 语义记忆 ====================
@@ -337,6 +371,7 @@ class MemoryService:
         """
         profile = await self.get_user_profile(user_id)
         if not profile:
+            logger.debug("语义记忆查询跳过 | 无用户偏好")
             return []
 
         # 构建语义查询：结合用户标签 + 偏好场景 + 最近情绪
@@ -353,9 +388,11 @@ class MemoryService:
             query_parts.append(profile.last_emotion)
 
         if not query_parts:
+            logger.debug("语义记忆查询跳过 | 无查询关键词")
             return []
 
         query = " ".join(query_parts)
+        logger.debug(f"语义记忆查询 | user_id={user_id} | query='{query}'")
 
         # 通过 MCP SDK 调用 search_memory 工具
         result = await self.mcp.call(
@@ -366,10 +403,12 @@ class MemoryService:
         )
 
         if not result:
+            logger.debug("语义记忆查询无结果")
             return []
 
-        # 解析返回结果
-        return [item.get("content", "") for item in result.get("results", [])]
+        memories = [item.get("content", "") for item in result.get("results", [])]
+        logger.debug(f"语义记忆查询完成 | count={len(memories)}")
+        return memories
 
     async def save_chat_to_supermemory(
         self,
@@ -391,6 +430,7 @@ class MemoryService:
         """
         content = f"用户说：{user_message}\nAI回复：{ai_response}"
 
+        logger.debug(f"保存语义记忆 | user_id={user_id} | scene={scene} | message_length={len(user_message)} | response_length={len(ai_response)}")
         await self.mcp.call(
             "add_memory",
             content=content,
@@ -443,6 +483,8 @@ class MemoryService:
                 except (json.JSONDecodeError, TypeError):
                     avoid_words = []
         
+        logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)}")
+        
         # 获取最近会话
         recent_messages: list[dict[str, Any]] = []
         if session_id:
@@ -452,13 +494,18 @@ class MemoryService:
                     recent_messages = json.loads(session.messages)
                 except (json.JSONDecodeError, TypeError):
                     recent_messages = []
+            logger.debug(f"记忆汇总: 会话 | session_id={session_id} | messages_count={len(recent_messages)}")
+        else:
+            logger.debug("记忆汇总: 无 session_id，跳过会话消息")
         
         # 获取高光里程碑
         milestones = await self.get_milestones(user_id, limit=5)
         milestone_contents = [m.content for m in milestones]
+        logger.debug(f"记忆汇总: 里程碑 | count={len(milestone_contents)}")
         
         # 获取语义记忆（supermemory）
         semantic_memories = await self._get_semantic_memories(user_id)
+        logger.debug(f"记忆汇总: 语义记忆 | count={len(semantic_memories)}")
         
         return MemorySummary(
             prefer_scene=prefer_scene,

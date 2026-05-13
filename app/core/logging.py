@@ -14,7 +14,6 @@
 
 import logging
 import logging.config
-import os
 import sys
 import time
 import uuid
@@ -26,9 +25,6 @@ import yaml
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-
-from app.config import get_settings
-
 
 # ==================== 全局变量 ====================
 
@@ -90,8 +86,32 @@ def clear_trace_id() -> None:
 
 # ==================== 日志初始化 ====================
 
-def _cleanup_log_files() -> None:
-    """删除现有日志文件，确保服务每次启动时从新文件开始（覆盖模式）"""
+def _should_wipe_logs() -> bool:
+    """
+    判断是否应该清空并重新创建日志文件
+    
+    逻辑：如果日志文件存在但上次修改时间不是今天，说明服务停止过，
+    需要重新开始新日志（符合微服务每次启动新会话的理念）
+    """
+    from datetime import date, datetime
+    
+    log_file = LOG_DIR / "kuakua-agent.log"
+    
+    if not log_file.exists():
+        return False
+    
+    # 获取文件最后修改时间
+    mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+    
+    # 如果最后修改不是今天，说明服务停止过，需要覆盖
+    if mtime.date() < date.today():
+        return True
+    
+    return False
+
+
+def _wipe_existing_logs() -> None:
+    """删除现有日志文件，重新开始"""
     for filename in ["kuakua-agent.log", "kuakua-agent-error.log"]:
         log_file = LOG_DIR / filename
         if log_file.exists():
@@ -105,14 +125,16 @@ def setup_logging(config_path: Optional[Path] = None) -> None:
     从 logging.yaml 读取配置并应用。
     如果配置文件不存在，使用默认配置。
     
-    Args:
-        config_path: 日志配置文件路径，默认使用项目根目录的 logging.yaml
+    启动逻辑：
+    - 如果日志文件是今天修改的（服务正在运行），保留追加
+    - 如果日志文件是昨天或更早的（服务停止后重启），覆盖重新开始
     """
     # 确保日志目录存在
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     
-    # 删除旧日志文件，实现每次启动覆盖而非追加
-    _cleanup_log_files()
+    # 检查是否需要覆盖旧日志
+    if _should_wipe_logs():
+        _wipe_existing_logs()
     
     config_path = config_path or LOG_CONFIG_PATH
     
@@ -159,12 +181,12 @@ def _setup_default_logging() -> None:
     console_handler.addFilter(_trace_filter)
     root_logger.addHandler(console_handler)
     
-    # 文件处理器
+    # 文件处理器（每天轮转，保留 7 天）
     file_handler = logging.handlers.TimedRotatingFileHandler(
         LOG_DIR / "kuakua-agent.log",
-        when="M",
-        interval=1440,
-        backupCount=30,
+        when="MIDNIGHT",
+        interval=1,
+        backupCount=7,
         encoding="utf-8"
     )
     file_handler.setLevel(logging.INFO)
@@ -217,7 +239,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     def __init__(
         self, 
         app: ASGIApp,
-        exclude_paths: Optional[list[str]] = None
+        exclude_paths: list[str] | None = None
     ):
         """
         初始化中间件
