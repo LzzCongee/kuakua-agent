@@ -52,15 +52,22 @@ class MCPClient:
             from mcp.client.sse import sse_client
             from mcp import ClientSession
 
-            self._client_ctx = sse_client(self.url, headers=self.headers)
-            read, write = await self._client_ctx.__aenter__()
-            self._session = ClientSession(read, write)
+            logger.info(f"正在建立 MCP 连接: {self.url}")
+            # 使用 wait_for 包装连接和握手过程，避免启动阻塞
+            async with asyncio.timeout(self.timeout):
+                self._client_ctx = sse_client(self.url, headers=self.headers)
+                read, write = await self._client_ctx.__aenter__()
+                self._session = ClientSession(read, write)
 
-            # MCP 协议握手：initialize → list_tools
-            await self._session.initialize()
-            tools = await self._session.list_tools()
-            tool_names = [t.name for t in tools]
-            logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
+                # MCP 协议握手：initialize → list_tools
+                await self._session.initialize()
+                tools = await self._session.list_tools()
+                tool_names = [t.name for t in tools]
+                logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
+        except asyncio.TimeoutError:
+            logger.error(f"MCP 连接超时 ({self.timeout}s): {self.url}")
+            self._session = None
+            # 注意：这里不需要手动调用 __aexit__，因为 timeout 抛出异常会中断 aenter
         except Exception as e:
             logger.error(f"MCP 连接失败: {e}")
             self._session = None

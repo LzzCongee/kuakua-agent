@@ -21,6 +21,11 @@ formatters:
     class: pythonjsonlogger.jsonlogger.JsonFormatter
     format: "%(asctime)s %(name)s %(levelname)s %(trace_id)s %(message)s"
 
+# 日志过滤器
+filters:
+  trace_id:
+    (): app.core.logging.TraceIDFilter
+
 # 日志处理器
 handlers:
   # 控制台输出
@@ -29,6 +34,7 @@ handlers:
     level: DEBUG
     formatter: standard
     stream: ext://sys.stdout
+    filters: [trace_id]
   
   # 按日期分割的文件处理器
   file:
@@ -42,6 +48,7 @@ handlers:
     interval: 1
     backupCount: 30
     encoding: utf-8
+    filters: [trace_id]
   
   # 错误日志单独文件
   error_file:
@@ -53,6 +60,7 @@ handlers:
     interval: 1
     backupCount: 30
     encoding: utf-8
+    filters: [trace_id]
 
 # 日志记录器
 loggers:
