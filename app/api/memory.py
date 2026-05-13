@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/memory", tags=["记忆管理"])
 
 # ---------- 依赖注入类型别名 ----------
 
-type AdminSessionDep = Annotated[AsyncSession, Depends(get_session)]
+AdminSessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 def _get_memory_service(session: AdminSessionDep) -> MemoryService:
@@ -46,7 +46,7 @@ def _get_memory_service(session: AdminSessionDep) -> MemoryService:
     return MemoryService(session)
 
 
-type MemoryServiceDep = Annotated[MemoryService, Depends(_get_memory_service)]
+MemoryServiceDep = Annotated[MemoryService, Depends(_get_memory_service)]
 
 
 # ---------- 辅助函数 ----------

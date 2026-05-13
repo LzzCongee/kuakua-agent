@@ -37,10 +37,10 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["管理后台"]) 
 
 # ---------- 依赖注入类型别名 ----------
-type PromptServiceDep = Annotated[PromptService, Depends(lambda: PromptService())]
-type ABTestServiceDep = Annotated[ABTestService, Depends(lambda: ABTestService())]
-type SessionDep = Annotated[AsyncSession, Depends(get_session)]
-type AdminKeyDep = Annotated[str, Depends(verify_admin_key)]
+PromptServiceDep = Annotated[PromptService, Depends(lambda: PromptService())]
+ABTestServiceDep = Annotated[ABTestService, Depends(lambda: ABTestService())]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+AdminKeyDep = Annotated[str, Depends(verify_admin_key)]
 
 
 # ==================== Prompt CRUD ====================

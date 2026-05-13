@@ -76,7 +76,7 @@ async def get_user_id(
 
 
 # 类型别名，方便在接口中使用
-type UserID = Annotated[str, Depends(get_user_id)]
+UserID = Annotated[str, Depends(get_user_id)]
 
 
 def get_optional_user_id(
@@ -102,7 +102,7 @@ def get_optional_user_id(
 
 
 # 类型别名
-type OptionalUserID = Annotated[Optional[str], Depends(get_optional_user_id)]
+OptionalUserID = Annotated[Optional[str], Depends(get_optional_user_id)]
 
 
 async def get_user_id_from_header(
@@ -116,4 +116,4 @@ async def get_user_id_from_header(
 
 
 # 类型别名，方便在接口中使用
-type HeaderUserID = Annotated[str, Depends(get_user_id_from_header)]
+HeaderUserID = Annotated[str, Depends(get_user_id_from_header)]

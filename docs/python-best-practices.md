@@ -13,21 +13,19 @@
 - 类属性必须声明类型注解
 - 异步生成器使用 `AsyncGenerator[YieldType, SendType]`
 - `asyncio.Task` 必须显式标注返回类型，如 `asyncio.Task[Any]`
-- **类型别名**：项目已约定 Python 3.12，统一使用新的 `type` 关键字声明类型别名（取代 `TypeAlias`）
-- 避免 `Any`；确实需要时添加 `# type: ignore[assignment]` 并注释原因
-- **已有代码**中的 `Optional` / `List` / `Dict` 不强制迁移，新代码优先使用新语法
+- **类型别名**：
+    - 一般类型别名：Python 3.12+ 统一使用新的 `type` 关键字声明（取代 `TypeAlias`）。
+    - **FastAPI 依赖注入别名（重要）**：由于 FastAPI/Pydantic 目前对 `TypeAliasType` 的反射支持尚不完善，**禁止**在 `Depends` 相关的 `Annotated` 别名上使用 `type` 关键字。请使用传统的赋值方式，以确保 OpenAPI Schema 生成正常。
 
 ```python
-# 推荐
-async def get_user(user_id: int) -> User | None: ...
-# 类型别名 (Python 3.12+)
-type UserDep = Annotated[User, Depends(get_current_user)]
-# 后台任务
-task: asyncio.Task[None] = asyncio.create_task(do_work())
+# 推荐：通用类型别名 (Python 3.12+)
+type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
 
-# 不推荐（但已有代码无需主动改）
-async def get_user(user_id: int) -> Optional[User]: ...
-UserDep: TypeAlias = Annotated[User, Depends(get_current_user)]
+# 推荐：FastAPI 依赖注入别名（使用赋值方式，避免 TypeAliasType 报错）
+UserDep = Annotated[User, Depends(get_current_user)]
+
+# 不推荐（会导致 FastAPIError: Invalid args for response field!）
+type UserDep = Annotated[User, Depends(get_current_user)]
 ```
 
 ---
