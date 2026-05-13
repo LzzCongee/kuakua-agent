@@ -573,7 +573,9 @@
         async function getProfile() {
             const userId = getUserId();
             try {
-                const res = await fetch(`${API_BASE}/api/memory/profile/${userId}`);
+                const res = await fetch(`${API_BASE}/api/memory/profile`, {
+                    headers: { 'X-User-ID': userId }
+                });
                 const data = await res.json();
                 
                 if (data.code === 0 && data.data) {
@@ -606,9 +608,12 @@
             const lastEmotion = document.getElementById('lastEmotion').value || null;
             
             try {
-                const res = await fetch(`${API_BASE}/api/memory/profile/${userId}`, {
+                const res = await fetch(`${API_BASE}/api/memory/profile`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
                     body: JSON.stringify({
                         prefer_scene: preferScene,
                         prefer_style: preferStyle,
@@ -633,12 +638,14 @@
         async function getSummary() {
             const userId = getUserId();
             const sessionId = document.getElementById('sessionId').value || null;
-            
+
             try {
-                let url = `${API_BASE}/api/memory/summary/${userId}`;
+                let url = `${API_BASE}/api/memory/summary`;
                 if (sessionId) url += `?session_id=${sessionId}`;
-                
-                const res = await fetch(url);
+
+                const res = await fetch(url, {
+                    headers: { 'X-User-ID': userId }
+                });
                 const data = await res.json();
                 
                 if (data.code === 0) {
@@ -677,7 +684,9 @@
         async function getMilestones() {
             const userId = getUserId();
             try {
-                const res = await fetch(`${API_BASE}/api/memory/milestones/${userId}`);
+                const res = await fetch(`${API_BASE}/api/memory/milestones`, {
+                    headers: { 'X-User-ID': userId }
+                });
                 const data = await res.json();
                 
                 if (data.code === 0 && data.data && data.data.length) {
@@ -708,9 +717,11 @@
             try {
                 const res = await fetch(`${API_BASE}/api/memory/milestones`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
                     body: JSON.stringify({
-                        user_id: userId,
                         content,
                         source: 'manual',
                         importance
@@ -738,8 +749,9 @@
             }
             
             try {
-                const res = await fetch(`${API_BASE}/api/memory/milestones/extract?user_id=${userId}&content=${encodeURIComponent(content)}`, {
-                    method: 'POST'
+                const res = await fetch(`${API_BASE}/api/memory/milestones/extract?content=${encodeURIComponent(content)}`, {
+                    method: 'POST',
+                    headers: { 'X-User-ID': userId }
                 });
                 
                 const data = await res.json();

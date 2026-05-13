@@ -15,15 +15,15 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.logging import get_logger
-from ..models.models import Session, UserProfile, Milestone 
-from ..models.schemas import (  
+from ..models.models import Milestone, Session, UserProfile
+from ..models.schemas import (
     MemorySummary,
-    UserProfileUpdate,
     MilestoneCreate,
+    UserProfileUpdate,
 )
 
 logger = get_logger(__name__)
