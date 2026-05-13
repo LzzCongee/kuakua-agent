@@ -18,7 +18,7 @@ formatters:
   
   # JSON 格式（用于日志收集系统如 ELK）
   json:
-    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    class: pythonjsonlogger.json.JsonFormatter
     format: "%(asctime)s %(name)s %(levelname)s %(trace_id)s %(message)s"
 
 # 日志过滤器
@@ -43,9 +43,9 @@ handlers:
     formatter: standard
     # 日志目录（相对于项目根目录）
     filename: logs/kuakua-agent.log
-    # 按天分割，保留 30 天
-    when: midnight
-    interval: 1
+    # 按天分割（使用分钟模式以在文件名中包含时分），保留 30 天
+    when: M
+    interval: 1440
     backupCount: 30
     encoding: utf-8
     filters: [trace_id]
@@ -56,8 +56,8 @@ handlers:
     level: ERROR
     formatter: detailed
     filename: logs/kuakua-agent-error.log
-    when: midnight
-    interval: 1
+    when: M
+    interval: 1440
     backupCount: 30
     encoding: utf-8
     filters: [trace_id]

@@ -90,6 +90,14 @@ def clear_trace_id() -> None:
 
 # ==================== 日志初始化 ====================
 
+def _cleanup_log_files() -> None:
+    """删除现有日志文件，确保服务每次启动时从新文件开始（覆盖模式）"""
+    for filename in ["kuakua-agent.log", "kuakua-agent-error.log"]:
+        log_file = LOG_DIR / filename
+        if log_file.exists():
+            log_file.unlink()
+
+
 def setup_logging(config_path: Optional[Path] = None) -> None:
     """
     初始化日志配置
@@ -102,6 +110,9 @@ def setup_logging(config_path: Optional[Path] = None) -> None:
     """
     # 确保日志目录存在
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 删除旧日志文件，实现每次启动覆盖而非追加
+    _cleanup_log_files()
     
     config_path = config_path or LOG_CONFIG_PATH
     
@@ -151,8 +162,8 @@ def _setup_default_logging() -> None:
     # 文件处理器
     file_handler = logging.handlers.TimedRotatingFileHandler(
         LOG_DIR / "kuakua-agent.log",
-        when="midnight",
-        interval=1,
+        when="M",
+        interval=1440,
         backupCount=30,
         encoding="utf-8"
     )
