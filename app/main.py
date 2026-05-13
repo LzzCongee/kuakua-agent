@@ -50,10 +50,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 settings = get_settings()
 
 # 创建 FastAPI 应用实例
+_SERVICE_NAME = settings.service_name
+
 app = FastAPI(
-    title=f"{settings.service_name} API",
+    title=f"{_SERVICE_NAME} API",
     version="0.1.0",
-    description=f"{settings.service_name} - 基于 AI 的夸夸生成服务",
+    description=(
+        f"## {_SERVICE_NAME}\n\n"
+        "基于 AI 的个性化夸夸生成服务，通过积极心理学方法论为用户生成真诚的赞美文案。\n\n"
+        "### 认证方式\n\n"
+        "| 请求头 | 说明 | 必填 |\n"
+        "|--------|------|------|\n"
+        "| `X-User-ID` | 用户标识，用于数据隔离和个性化服务 | 业务接口必填，未提供时默认 `anonymous` |\n"
+        "| `X-Admin-Key` | 管理后台 API Key | 管理接口必填 |\n"
+        "| `X-Trace-ID` | 请求追踪 ID，用于日志关联 | 可选 |\n\n"
+        "### 通用响应格式\n\n"
+        "所有接口统一返回 `ApiResponse` 包装：\n\n"
+        '```json\n'
+        '{\n'
+        '  "code": 0,\n'
+        '  "message": "success",\n'
+        '  "data": { ... }\n'
+        '}\n'
+        '```\n\n'
+        "错误时 `code` 非 0，`data` 为 null。\n\n"
+        "### 场景类型\n\n"
+        "| 值 | 说明 |\n"
+        "|----|------|\n"
+        "| `general` | 通用场景（默认） |\n"
+        "| `career` | 事业搞钱场景 |\n"
+        "| `beauty` | 颜值气质场景 |\n"
+        "| `love` | 甜蜜恋爱场景 |\n"
+        "| `daily` | 日常治愈场景 |\n"
+    ),
     lifespan=lifespan,
     docs_url="/docs",      # Swagger UI (默认)
     redoc_url="/redoc",    # ReDoc (备选方案)

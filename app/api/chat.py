@@ -194,18 +194,20 @@ async def chat_stream(
             full_content = ""
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
+            image_desc = None
             if has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
                 logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type}")
-                content = await service._generate_multimodal(
+                multimodal_result = await service._generate_multimodal(
                     system_prompt=system_prompt,
                     text=request.text if has_text else None,
                     image=request.image,
                 )
-                full_content = content
+                full_content = multimodal_result["content"]
+                image_desc = multimodal_result.get("image_desc")
                 yield {
                     "event": "chunk",
-                    "data": json.dumps({"content": content}, ensure_ascii=False),
+                    "data": json.dumps({"content": full_content}, ensure_ascii=False),
                 }
             else:
                 async for chunk in service.provider.generate_stream(
@@ -235,7 +237,7 @@ async def chat_stream(
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
             logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200]}")
             
-            response = ChatResponse(content=full_content, scene=request.scene)
+            response = ChatResponse(content=full_content, scene=request.scene, has_image=has_image, image_desc=image_desc)
             task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
             task.add_done_callback(_handle_task_exception)
         except Exception as e:
@@ -339,12 +341,33 @@ async def _update_session_after_chat(
                     messages = []
                     logger.warning(f"历史消息 JSON 解析失败，重置为空 | user_id={user_id}")
 
-            # 添加用户消息
-            if request.text:
+            # 添加用户消息（支持多模态：图片消息存储描述而非原图）
+            has_image = bool(request.image and request.image.strip())
+            has_text = bool(request.text and request.text.strip())
+            timestamp = datetime.now(timezone.utc).isoformat()
+
+            if has_image and has_text:
+                # 混合输入：文字 + 图片描述
+                content = request.text
+                if response.image_desc:
+                    content += f"\n[图片：{response.image_desc}]"
                 messages.append({
-                    "role": "user",
-                    "content": request.text,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "role": "user", "content": content,
+                    "type": "mixed", "has_image": True, "timestamp": timestamp,
+                })
+                logger.debug(f"添加混合消息 | user_id={user_id} | text={request.text[:50]} | desc={response.image_desc}")
+            elif has_image:
+                # 纯图片：存储图片描述
+                messages.append({
+                    "role": "user", "content": response.image_desc or "[图片]",
+                    "type": "image", "has_image": True, "timestamp": timestamp,
+                })
+                logger.debug(f"添加图片消息 | user_id={user_id} | desc={response.image_desc}")
+            elif has_text:
+                # 纯文本（不变）
+                messages.append({
+                    "role": "user", "content": request.text,
+                    "type": "text", "timestamp": timestamp,
                 })
                 logger.debug(f"添加用户消息 | user_id={user_id} | content={request.text[:100]}")
 

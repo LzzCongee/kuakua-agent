@@ -25,38 +25,73 @@ def _utc_now() -> datetime:
 class QuoteResponse(BaseModel):
     """
     夸夸语录响应模型
-    
+
     用于返回生成的夸夸内容
     """
     model_config = ConfigDict(
         from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
+        json_encoders={datetime: lambda v: v.isoformat()},
+        json_schema_extra={
+            "examples": [
+                {
+                    "content": "拖了两周还能坚持找到答案，这份不放弃的劲儿挺难得的。",
+                    "scene": "career",
+                    "created_at": "2025-05-13T12:00:00+00:00",
+                }
+            ]
+        },
     )
     
     content: str = Field(..., description="夸夸语录内容")
-    scene: str = Field(default="general", description="场景标签")
+    scene: str = Field(
+        default="general",
+        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+    )
     created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
 
 
 class FavoriteCreate(BaseModel):
     """
     创建收藏请求模型
-    
+
     用于接收用户收藏夸夸语录的请求
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "content": "拖了两周还能坚持找到答案，这份不放弃的劲儿挺难得的。",
+                    "scene": "career",
+                }
+            ]
+        },
+    )
     content: str = Field(..., min_length=1, description="夸夸语录内容")
-    scene: str = Field(default="general", description="场景标签")
+    scene: str = Field(
+        default="general",
+        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+    )
 
 
 class FavoriteResponse(BaseModel):
     """
     收藏响应模型
-    
+
     用于返回收藏记录的完整信息
     """
     model_config = ConfigDict(
         from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
+        json_encoders={datetime: lambda v: v.isoformat()},
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": 1,
+                    "content": "拖了两周还能坚持找到答案，这份不放弃的劲儿挺难得的。",
+                    "scene": "career",
+                    "created_at": "2025-05-13T12:00:00+00:00",
+                }
+            ]
+        },
     )
     
     id: int = Field(..., description="收藏记录 ID")
@@ -72,21 +107,35 @@ T = TypeVar("T")
 class ApiResponse(BaseModel, Generic[T]):
     """
     统一 API 响应包装模型
-    
+
     所有 API 响应都使用此模型进行包装，提供统一的响应格式
-    
+
     Type Parameters:
         T: 响应数据的类型
-    
+
     Example:
         # 成功响应
         ApiResponse(data={"message": "Hello"})
-        
+
         # 错误响应
         ApiResponse(code=400, message="参数错误")
     """
     model_config = ConfigDict(
-        json_encoders={datetime: lambda v: v.isoformat()}
+        json_encoders={datetime: lambda v: v.isoformat()},
+        json_schema_extra={
+            "examples": [
+                {
+                    "code": 0,
+                    "message": "success",
+                    "data": {},
+                },
+                {
+                    "code": 400,
+                    "message": "参数错误：text 和 image 至少要有一个不为空",
+                    "data": None,
+                },
+            ]
+        },
     )
     
     code: int = Field(default=0, description="状态码，0 表示成功")
@@ -97,12 +146,36 @@ class ApiResponse(BaseModel, Generic[T]):
 class ChatRequest(BaseModel):
     """
     交互式夸夸请求模型
-    
+
     用于接收用户发送的文字和图片，生成个性化的夸赞文案
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "text": "今天终于把那个拖了两周的 bug 修好了",
+                    "scene": "career",
+                },
+                {
+                    "text": "今天的穿搭怎么样",
+                    "image": "base64编码的图片数据...",
+                    "scene": "beauty",
+                },
+            ]
+        },
+    )
     text: Optional[str] = Field(default=None, description="用户输入的文字")
-    image: Optional[str] = Field(default=None, description="base64 编码的图片数据")
-    scene: str = Field(default="general", description="可选场景标签")
+    image: Optional[str] = Field(
+        default=None,
+        description=(
+            "base64 编码的图片数据。支持 png/jpg/jpeg/gif/webp/bmp 格式。"
+            "直接传 base64 字符串即可，不需要 data:image/... 前缀。"
+        ),
+    )
+    scene: str = Field(
+        default="general",
+        description="场景标签，可选值：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+    )
     
     @model_validator(mode='after')
     def validate_text_or_image(self):
@@ -128,17 +201,32 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """
     交互式夸夸响应模型
-    
+
     用于返回 AI 生成的夸夸文案
     """
     model_config = ConfigDict(
         from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
+        json_encoders={datetime: lambda v: v.isoformat()},
+        json_schema_extra={
+            "examples": [
+                {
+                    "content": "拖了两周还能坚持找到答案，这份不放弃的劲儿挺难得的。",
+                    "scene": "career",
+                    "has_image": False,
+                    "image_desc": None,
+                    "created_at": "2025-05-13T12:00:00+00:00",
+                }
+            ]
+        },
     )
     
     content: str = Field(..., description="AI 生成的夸夸文案")
-    scene: str = Field(..., description="场景标签")
+    scene: str = Field(
+        ...,
+        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+    )
     has_image: bool = Field(default=False, description="是否包含图片输入")
+    image_desc: str | None = Field(default=None, description="AI 对图片的简短描述（仅多模态输入时有值）")
     created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
 
 
@@ -224,7 +312,10 @@ class SessionCreate(BaseModel):
     """创建短期会话请求模型"""
     session_id: str = Field(..., min_length=1, description="会话ID")
     user_id: str = Field(default="default", description="用户ID")
-    scene: str = Field(default="general", description="场景标签")
+    scene: str = Field(
+        default="general",
+        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+    )
     messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
 
 
@@ -252,7 +343,19 @@ class SessionResponse(BaseModel):
 
 class UserProfileUpdate(BaseModel):
     """更新用户偏好请求模型"""
-    prefer_scene: Optional[list[str]] = Field(default=None, description="喜欢的场景")
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "prefer_scene": "career",
+                    "prefer_style": "温柔治愈",
+                    "user_tags": ["程序员", "内向"],
+                    "last_emotion": "tired",
+                }
+            ]
+        },
+    )
+    prefer_scene: Optional[str] = Field(default=None, description="偏好场景，如 career/beauty/love/daily")
     prefer_style: Optional[str] = Field(default=None, description="喜欢的夸夸风格")
     user_tags: Optional[list[str]] = Field(default=None, description="用户标签列表")
     avoid_words: Optional[list[str]] = Field(default=None, description="避免的词汇")
@@ -263,13 +366,29 @@ class UserProfileResponse(BaseModel):
     """用户偏好响应模型"""
     model_config = ConfigDict(
         from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
+        json_encoders={datetime: lambda v: v.isoformat()},
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": 1,
+                    "user_id": "user_abc123",
+                    "prefer_scene": "career",
+                    "prefer_style": "温柔治愈",
+                    "user_tags": ["程序员", "内向"],
+                    "avoid_words": [],
+                    "last_emotion": "tired",
+                    "conversation_count": 15,
+                    "favorite_count": 3,
+                    "last_active": "2025-05-13T12:00:00+00:00",
+                }
+            ]
+        },
     )
 
     id: int = Field(..., description="记录 ID")
     user_id: str = Field(..., description="用户ID")
-    prefer_scene: Optional[str] = Field(default=None, description="喜欢的场景")
-    prefer_style: Optional[str] = Field(default=None, description="喜欢的风格")
+    prefer_scene: Optional[str] = Field(default=None, description="偏好场景，如 career/beauty/love/daily")
+    prefer_style: Optional[str] = Field(default=None, description="喜欢的夸夸风格，如 温柔治愈/幽默搞笑/理性分析")
     user_tags: list[str] = Field(default_factory=list, description="用户标签")
     avoid_words: list[str] = Field(default_factory=list, description="避免词汇")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
@@ -304,8 +423,27 @@ class MilestoneResponse(BaseModel):
 
 class MemorySummary(BaseModel):
     """用户记忆汇总模型（用于注入Prompt）"""
-    prefer_scene: Optional[str] = Field(default=None, description="偏好场景")
-    prefer_style: Optional[str] = Field(default=None, description="偏好风格")
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "prefer_scene": "career",
+                    "prefer_style": "温柔治愈",
+                    "user_tags": ["程序员", "内向"],
+                    "avoid_words": [],
+                    "recent_messages": [
+                        {"role": "user", "content": "今天加班到很晚"},
+                        {"role": "assistant", "content": "加班到现在确实挺累的..."},
+                    ],
+                    "milestones": ["坚持跑步30天"],
+                    "last_emotion": "tired",
+                    "semantic_memories": ["用户之前提到喜欢简洁的夸赞风格"],
+                }
+            ]
+        },
+    )
+    prefer_scene: Optional[str] = Field(default=None, description="偏好场景，如 career/beauty/love/daily")
+    prefer_style: Optional[str] = Field(default=None, description="偏好风格，如 温柔治愈/幽默搞笑")
     user_tags: list[str] = Field(default_factory=list, description="用户标签")
     avoid_words: list[str] = Field(default_factory=list, description="避免词汇")
     recent_messages: list[dict[str, Any]] = Field(default_factory=list, description="最近消息")

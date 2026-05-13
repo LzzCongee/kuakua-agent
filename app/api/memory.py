@@ -187,7 +187,7 @@ async def update_user_profile(
 async def get_memory_summary(
     service: MemoryServiceDep,
     session_id: Annotated[str | None, Query(description="可选的当前会话ID")] = None,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[MemorySummary]:
     """
     获取用户记忆汇总（用于注入 Prompt）
@@ -211,7 +211,7 @@ async def get_memory_summary(
 async def get_user_sessions(
     service: MemoryServiceDep,
     limit: int = 5,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[list[SessionResponse]]:
     """
     获取用户的会话历史
@@ -246,7 +246,7 @@ async def get_user_sessions(
 async def create_or_update_session(
     data: SessionCreate,
     service: MemoryServiceDep,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[SessionResponse]:
     """
     创建或更新会话
@@ -365,7 +365,7 @@ async def get_session_by_id(
 async def get_user_milestones(
     service: MemoryServiceDep,
     limit: int = 10,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[list[MilestoneResponse]]:
     """
     获取用户的高光里程碑
@@ -398,7 +398,7 @@ async def get_user_milestones(
 async def create_milestone(
     data: MilestoneCreate,
     service: MemoryServiceDep,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[MilestoneResponse]:
     """
     添加高光里程碑
@@ -435,7 +435,7 @@ async def create_milestone(
 async def extract_milestone(
     content: str,
     service: MemoryServiceDep,
-    user_id: HeaderUserID = None,
+    user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[MilestoneResponse | None]:
     """
     从对话内容中提取并添加里程碑

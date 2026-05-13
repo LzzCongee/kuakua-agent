@@ -239,6 +239,81 @@
         .status.success { background: #d4edda; color: #155724; }
         .status.error { background: #f8d7da; color: #721c24; }
         .status.info { background: #d1ecf1; color: #0c5460; }
+
+        /* 图片上传区域 */
+        .image-upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+            color: #888;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .image-upload-area:hover, .image-upload-area.dragover {
+            border-color: #4a90d9;
+            background: #f0f7ff;
+        }
+        .image-upload-area input[type="file"] {
+            display: none;
+        }
+        .image-upload-area .upload-hint {
+            font-size: 13px;
+        }
+        .image-upload-area .upload-hint kbd {
+            background: #eee;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+        }
+        .image-preview-container {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .image-preview-item {
+            position: relative;
+            display: inline-block;
+        }
+        .image-preview-item img {
+            max-width: 120px;
+            max-height: 120px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            object-fit: cover;
+        }
+        .image-preview-item .remove-btn {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            background: #f44336;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 20px;
+            text-align: center;
+            padding: 0;
+        }
+        .image-preview-item .remove-btn:hover {
+            background: #d32f2f;
+        }
+        .message .image-indicator {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 6px;
+        }
     </style>
 </head>
 <body>
@@ -283,6 +358,16 @@
             <div class="form-group">
                 <label>输入内容</label>
                 <textarea id="chatInput" placeholder="输入你想被夸的内容..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>图片上传（可选）</label>
+                <div class="image-upload-area" id="imageUploadArea">
+                    <input type="file" id="imageFileInput" accept="image/*" multiple>
+                    <div class="upload-hint">
+                        点击选择图片、拖拽图片到此处、或按 <kbd>Ctrl+V</kbd> 粘贴
+                    </div>
+                </div>
+                <div class="image-preview-container" id="imagePreviewContainer"></div>
             </div>
             <div class="row">
                 <div class="col">
@@ -423,6 +508,85 @@
     <script>
         const API_BASE = '';
         let currentUserId = 'test_user';
+        let pendingImages = [];  // 存储待发送的图片 base64 数据
+
+        // ========== 图片上传处理 ==========
+        function initImageUpload() {
+            const area = document.getElementById('imageUploadArea');
+            const fileInput = document.getElementById('imageFileInput');
+
+            // 点击选择文件
+            area.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+                fileInput.value = '';
+            });
+
+            // 拖拽
+            area.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                area.classList.add('dragover');
+            });
+            area.addEventListener('dragleave', () => area.classList.remove('dragover'));
+            area.addEventListener('drop', (e) => {
+                e.preventDefault();
+                area.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            // 粘贴（全局监听，输入框聚焦时也能粘贴）
+            document.addEventListener('paste', (e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        handleFiles([item.getAsFile()]);
+                        break;
+                    }
+                }
+            });
+        }
+
+        function handleFiles(files) {
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+                if (pendingImages.length >= 3) {
+                    alert('最多上传 3 张图片');
+                    break;
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    pendingImages.push(e.target.result);
+                    renderImagePreviews();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function renderImagePreviews() {
+            const container = document.getElementById('imagePreviewContainer');
+            container.innerHTML = '';
+            pendingImages.forEach((dataUrl, index) => {
+                const item = document.createElement('div');
+                item.className = 'image-preview-item';
+                item.innerHTML = `
+                    <img src="${dataUrl}" alt="预览">
+                    <button class="remove-btn" onclick="removeImage(${index})">&times;</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function removeImage(index) {
+            pendingImages.splice(index, 1);
+            renderImagePreviews();
+        }
+
+        function clearImages() {
+            pendingImages = [];
+            renderImagePreviews();
+        }
         
         function getUserId() {
             return document.getElementById('userId').value || 'anonymous';
@@ -467,16 +631,22 @@
             const sessionId = getSessionId();
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
-            
-            if (!text) {
-                alert('请输入内容');
+            const hasImage = pendingImages.length > 0;
+
+            if (!text && !hasImage) {
+                alert('请输入内容或上传图片');
                 return;
             }
-            
+
             const btn = document.getElementById('sendBtn');
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span>发送中...';
-            
+
+            // 构建请求体：图片取第一张
+            const body = { scene };
+            if (text) body.text = text;
+            if (hasImage) body.image = pendingImages[0];
+
             try {
                 const res = await fetch(`${API_BASE}/api/chat`, {
                     method: 'POST',
@@ -484,15 +654,16 @@
                         'Content-Type': 'application/json',
                         'X-User-ID': userId
                     },
-                    body: JSON.stringify({ text, scene })
+                    body: JSON.stringify(body)
                 });
-                
+
                 const data = await res.json();
-                
+
                 if (data.code === 0) {
-                    appendMessage('user', text);
+                    appendMessage('user', text || '', hasImage);
                     appendMessage('assistant', data.data.content);
                     document.getElementById('chatInput').value = '';
+                    clearImages();
                 } else {
                     alert(`错误: ${data.message}`);
                 }
@@ -509,15 +680,20 @@
             const sessionId = getSessionId();
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
-            
-            if (!text) {
-                alert('请输入内容');
+            const hasImage = pendingImages.length > 0;
+
+            if (!text && !hasImage) {
+                alert('请输入内容或上传图片');
                 return;
             }
-            
-            appendMessage('user', text);
+
+            appendMessage('user', text || '', hasImage);
             appendMessage('assistant', '...');
-            
+
+            const body = { scene };
+            if (text) body.text = text;
+            if (hasImage) body.image = pendingImages[0];
+
             try {
                 const res = await fetch(`${API_BASE}/api/chat/stream?session_id=${sessionId}`, {
                     method: 'POST',
@@ -525,7 +701,7 @@
                         'Content-Type': 'application/json',
                         'X-User-ID': userId
                     },
-                    body: JSON.stringify({ text, scene })
+                    body: JSON.stringify(body)
                 });
                 
                 const reader = res.body.getReader();
@@ -555,19 +731,21 @@
                         }
                     }
                 }
+                clearImages();
             } catch (e) {
                 alert(`请求失败: ${e.message}`);
             }
         }
-        
-        function appendMessage(role, content) {
+
+        function appendMessage(role, content, hasImage = false) {
             const container = document.getElementById('chatMessages');
             const empty = container.querySelector('div[style*="text-align: center"]');
             if (empty) empty.remove();
-            
+
             const div = document.createElement('div');
             div.className = `message ${role}`;
-            div.innerHTML = `<div class="label">${role === 'user' ? '你' : '夸夸 Agent'}</div><div class="content">${content}</div>`;
+            const imageTag = hasImage ? '<span class="image-indicator">含图片</span>' : '';
+            div.innerHTML = `<div class="label">${role === 'user' ? '你' : '夸夸 Agent'}${imageTag}</div><div class="content">${content}</div>`;
             container.appendChild(div);
             container.scrollTop = container.scrollHeight;
         }
@@ -893,6 +1071,7 @@
         
         // 初始化
         initSession();
+        initImageUpload();
     </script>
 </body>
 </html>

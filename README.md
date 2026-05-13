@@ -197,3 +197,46 @@ uv pip install -r requirements.txt \
 
 - [开发者上手指南](docs/getting-started.md) - 完整的环境配置、API 接口详情和常见问题
 - [产品需求文档](docs/prd.md) - PRD 产品设计文档
+
+---
+
+## CloudBase 云托管部署
+
+### 部署信息
+
+| 项目 | 值 |
+|------|------|
+| 服务名称 | `kuakua-api` |
+| 服务类型 | 容器型 (container) |
+| 环境 ID | `dev-kuakua-d1gmvqyrha28477fe` |
+| 默认域名 | `https://kuakua-api-257074-7-1308646910.sh.run.tcloudbase.com` |
+| 端口 | 8080 |
+| CPU / 内存 | 0.5 核 / 1 GB |
+| 实例数 | 最小 1，最大 5 |
+| 访问类型 | PUBLIC / MINIAPP / OA |
+
+### API 地址
+
+- 健康检查: `https://kuakua-api-257074-7-1308646910.sh.run.tcloudbase.com/health`
+- API 文档: `https://kuakua-api-257074-7-1308646910.sh.run.tcloudbase.com/docs`
+
+### 环境变量
+
+部署时配置了以下环境变量：
+
+| 变量名 | 值 |
+|--------|------|
+| `MODELSCOPE_API_KEY` | 魔搭社区 API Key |
+| `AI_BASE_URL` | `https://api-inference.modelscope.cn/v1` |
+| `AI_MODEL` | `deepseek-ai/DeepSeek-V3.2` |
+| `AI_VISION_MODEL` | `Qwen/Qwen2.5-VL-72B-Instruct` |
+| `DATABASE_URL` | `sqlite:///./kuakua.db` |
+| `USE_CLOUDBASE` | `true` |
+| `CLOUDBASE_ENV_ID` | `dev-kuakua-d1gmvqyrha28477fe` |
+| `SUPERMEMORY_URL` | `http://106.55.151.27/sse` |
+| `SUPERMEMORY_ENABLED` | `true` |
+| `ENVIRONMENT` | `production` |
+
+### 控制台
+
+- 云托管服务管理: `https://tcb.cloud.tencent.com/dev?envId=dev-kuakua-d1gmvqyrha28477fe#/platform-run`

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal
 
@@ -114,6 +116,7 @@ class ChatService:
             logger.debug("无记忆注入")
         
         # 根据输入类型调用不同的生成方法
+        image_desc = None
         if input_type == "text_only":
             # 根据逻辑，text_only 模式时 text 一定不为空
             assert request.text is not None
@@ -122,17 +125,20 @@ class ChatService:
             logger.debug(f"纯文字生成完成 | content_length={len(content)}")
         else:
             logger.debug(f"开始多模态生成 | text={has_text} | image={has_image}")
-            content = await self._generate_multimodal(
-                system_prompt, 
+            multimodal_result = await self._generate_multimodal(
+                system_prompt,
                 request.text if has_text else None,
                 request.image if has_image else None
             )
-            logger.debug(f"多模态生成完成 | content_length={len(content)}")
-        
+            content = multimodal_result["content"]
+            image_desc = multimodal_result.get("image_desc")
+            logger.debug(f"多模态生成完成 | content_length={len(content)} | has_desc={image_desc is not None}")
+
         return ChatResponse(
             content=content,
             scene=request.scene,
             has_image=has_image,
+            image_desc=image_desc,
             created_at=datetime.now(timezone.utc)
         )
     
@@ -204,43 +210,52 @@ class ChatService:
         return await self.provider.generate(full_prompt)
     
     async def _generate_multimodal(
-        self, 
-        system_prompt: str, 
+        self,
+        system_prompt: str,
         text: str | None,
         image: str | None
-    ) -> str:
+    ) -> dict[str, str | None]:
         """
         多模态场景生成（含图片）
-        
+
         组装 OpenAI Vision 格式的 messages，调用 provider.generate_multimodal()
-        
+        要求 AI 同时返回夸赞文案和图片描述（JSON 格式）。
+
         Args:
             system_prompt: 系统提示词
             text: 用户输入的文字（可选）
             image: 用户输入的图片 base64 数据（可选）
-            
+
         Returns:
-            str: AI 生成的文本内容
+            dict: {"content": 夸赞文案, "image_desc": 图片描述或None}
         """
+        # 在 system prompt 末尾追加 JSON 输出要求
+        json_instruction = (
+            "\n\n【输出格式要求】\n"
+            "请严格按以下 JSON 格式返回，不要添加其他内容：\n"
+            '{"compliment": "你的夸赞文案", "image_desc": "图片的简短客观描述（30字以内，用于记忆上下文）"}'
+        )
+        full_system_prompt = system_prompt + json_instruction
+
         # 构建消息列表
         messages: list[dict[str, object]] = []
-        
+
         # 添加 system message
         messages.append({
             "role": "system",
-            "content": system_prompt
+            "content": full_system_prompt
         })
-        
+
         # 构建 user message content（支持多模态）
         user_content: list[dict[str, object]] = []
-        
+
         # 添加文字内容（如果有）
         if text:
             user_content.append({
                 "type": "text",
                 "text": text
             })
-        
+
         # 添加图片内容（如果有）
         if image:
             # 确保图片 base64 有 data URI 前缀
@@ -250,20 +265,66 @@ class ChatService:
                 "image_url": {"url": image_url}
             })
             logger.debug(f"图片处理完成 | has_data_uri_prefix={image.startswith('data:image')}")
-        
+
         # 添加 user message
         messages.append({
             "role": "user",
             "content": user_content
         })
-        
+
         # 调用多模态生成
         logger.debug(f"调用 provider.generate_multimodal | messages_count={len(messages)} | 模型={self.vision_model}")
-        return await self.provider.generate_multimodal(
+        raw = await self.provider.generate_multimodal(
             messages=messages,
             model=self.vision_model
         )
+
+        # 解析 JSON 响应，提取夸赞文案和图片描述
+        return self._parse_multimodal_response(raw)
     
+    def _parse_multimodal_response(self, raw: str) -> dict[str, str | None]:
+        """
+        解析多模态生成的 JSON 响应
+
+        尝试从 AI 返回中提取 {"compliment": ..., "image_desc": ...}。
+        解析失败时将整个响应作为夸赞文案，image_desc 为 None。
+
+        Args:
+            raw: AI 返回的原始文本
+
+        Returns:
+            dict: {"content": 夸赞文案, "image_desc": 图片描述或None}
+        """
+        text = raw.strip()
+
+        # 尝试直接解析
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict) and "compliment" in data:
+                return {
+                    "content": str(data["compliment"]),
+                    "image_desc": str(data["image_desc"]) if data.get("image_desc") else None,
+                }
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试提取 JSON 块（AI 有时会包裹在 ```json ... ``` 中）
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            try:
+                data = json.loads(match.group())
+                if isinstance(data, dict) and "compliment" in data:
+                    return {
+                        "content": str(data["compliment"]),
+                        "image_desc": str(data["image_desc"]) if data.get("image_desc") else None,
+                    }
+            except json.JSONDecodeError:
+                pass
+
+        # 降级：整个响应作为夸赞文案
+        logger.debug(f"多模态响应 JSON 解析失败，降级为纯文本 | raw={text[:100]}")
+        return {"content": text, "image_desc": None}
+
     def _ensure_data_uri(self, image_data: str) -> str:
         """
         确保图片 base64 数据有 data URI 前缀
