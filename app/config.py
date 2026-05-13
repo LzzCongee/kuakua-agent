@@ -94,7 +94,10 @@ class Settings(BaseSettings):
     ai_model: str = Field(default="deepseek-ai/DeepSeek-V3.2", description="AI 模型名称")
 
     # AI 视觉模型名称，用于处理图片等视觉任务
-    ai_vision_model: str = Field(default="Qwen/Qwen2.5-VL-72B-Instruct", description="AI 视觉模型名称")
+    ai_vision_model: str = Field(default="Qwen/Qwen3-VL-8B-Instruct", description="AI 视觉模型名称")
+
+    # AI 调用超时（秒），文本和视觉模型共用
+    ai_timeout: float = Field(default=30.0, ge=5.0, le=120.0, description="AI 调用超时秒数")
 
     # ==================== AI 记忆提取配置 ====================
 

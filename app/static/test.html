@@ -57,6 +57,8 @@
         button:disabled { background: #ccc; cursor: not-allowed; }
         button.secondary { background: #6c757d; }
         button.secondary:hover { background: #5a6268; }
+        button.stop { background: #f44336; }
+        button.stop:hover { background: #d32f2f; }
         
         .chat-messages {
             border: 1px solid #eee;
@@ -372,7 +374,8 @@
             <div class="row">
                 <div class="col">
                     <button onclick="sendChat()" id="sendBtn">发送消息</button>
-                    <button class="secondary" onclick="sendStream()">流式输出</button>
+                    <button class="secondary" onclick="sendStream()" id="streamBtn">流式输出</button>
+                    <button class="stop" onclick="stopGeneration()" id="stopBtn" style="display:none;">停止回复</button>
                 </div>
             </div>
             
@@ -509,6 +512,8 @@
         const API_BASE = '';
         let currentUserId = 'test_user';
         let pendingImages = [];  // 存储待发送的图片 base64 数据
+        let currentAbortController = null;  // 用于取消流式请求
+        let isGenerating = false;
 
         // ========== 图片上传处理 ==========
         function initImageUpload() {
@@ -626,6 +631,31 @@
         }
         
         // ========== 对话功能 ==========
+        // ========== 停止生成 ==========
+        function stopGeneration() {
+            if (currentAbortController) {
+                currentAbortController.abort();
+                currentAbortController = null;
+            }
+        }
+
+        function setGeneratingState(generating) {
+            isGenerating = generating;
+            const sendBtn = document.getElementById('sendBtn');
+            const streamBtn = document.getElementById('streamBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            if (generating) {
+                sendBtn.disabled = true;
+                streamBtn.disabled = true;
+                stopBtn.style.display = '';
+            } else {
+                sendBtn.disabled = false;
+                streamBtn.disabled = false;
+                stopBtn.style.display = 'none';
+                currentAbortController = null;
+            }
+        }
+
         async function sendChat() {
             const userId = getUserId();
             const sessionId = getSessionId();
@@ -638,8 +668,8 @@
                 return;
             }
 
+            setGeneratingState(true);
             const btn = document.getElementById('sendBtn');
-            btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span>发送中...';
 
             // 构建请求体：图片取第一张
@@ -670,7 +700,7 @@
             } catch (e) {
                 alert(`请求失败: ${e.message}`);
             } finally {
-                btn.disabled = false;
+                setGeneratingState(false);
                 btn.innerHTML = '发送消息';
             }
         }
@@ -694,6 +724,14 @@
             if (text) body.text = text;
             if (hasImage) body.image = pendingImages[0];
 
+            // 创建 AbortController 用于停止请求
+            currentAbortController = new AbortController();
+            setGeneratingState(true);
+
+            let content = '';
+            let stopped = false;
+            let lastMsg = document.querySelector('.message.assistant:last-child .content');
+
             try {
                 const res = await fetch(`${API_BASE}/api/chat/stream?session_id=${sessionId}`, {
                     method: 'POST',
@@ -701,22 +739,23 @@
                         'Content-Type': 'application/json',
                         'X-User-ID': userId
                     },
-                    body: JSON.stringify(body)
+                    body: JSON.stringify(body),
+                    signal: currentAbortController.signal,
                 });
-                
+
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
-                let content = '';
                 let currentEvent = '';
-                let lastMsg = document.querySelector('.message.assistant:last-child .content');
-                
+                let buffer = '';
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
-                    
-                    const text = decoder.decode(value);
-                    const lines = text.split('\n');
-                    
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();  // 保留不完整的行
+
                     for (const line of lines) {
                         if (line.startsWith('event: ')) {
                             currentEvent = line.slice(7).trim();
@@ -726,15 +765,44 @@
                                 if (currentEvent === 'chunk' && data.content) {
                                     content += data.content;
                                     if (lastMsg) lastMsg.textContent = content;
+                                } else if (currentEvent === 'error') {
+                                    // 后端返回错误事件
+                                    const errMsg = data.message || '生成失败';
+                                    if (lastMsg) lastMsg.textContent = content || errMsg;
+                                    appendErrorNote(lastMsg, errMsg);
                                 }
+                                // done 事件不追加内容，只用于确认完成
                             } catch (e) {}
                         }
                     }
                 }
                 clearImages();
             } catch (e) {
-                alert(`请求失败: ${e.message}`);
+                if (e.name === 'AbortError') {
+                    stopped = true;
+                    if (lastMsg && content) {
+                        appendErrorNote(lastMsg, '已停止回复');
+                    } else if (lastMsg) {
+                        lastMsg.textContent = '（已取消）';
+                    }
+                } else {
+                    if (lastMsg) lastMsg.textContent = `请求失败: ${e.message}`;
+                }
+            } finally {
+                setGeneratingState(false);
+                // 中断/停止的消息也保留到历史（业界统一做法：ChatGPT/Claude/Kimi 都保留）
+                if (content && stopped) {
+                    document.getElementById('chatInput').value = '';
+                }
             }
+        }
+
+        function appendErrorNote(msgEl, text) {
+            if (!msgEl) return;
+            const note = document.createElement('div');
+            note.style.cssText = 'color:#f44336;font-size:12px;margin-top:4px;';
+            note.textContent = text;
+            msgEl.parentElement.appendChild(note);
         }
 
         function appendMessage(role, content, hasImage = false) {

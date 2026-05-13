@@ -60,7 +60,8 @@ def get_chat_service() -> ChatService:
     provider = QwenProvider(
         api_key=settings.modelscope_api_key,
         base_url=settings.ai_base_url,
-        model=settings.ai_model
+        model=settings.ai_model,
+        timeout=settings.ai_timeout,
     )
     return ChatService(
         provider=provider,
@@ -147,7 +148,9 @@ async def chat_stream(
     
     if not session_id:
         session_id = f"session_{int(time.time() * 1000)}"
-    
+
+    settings = get_settings()
+
     # 判断输入类型
     input_type: Literal["text_only", "image_only", "mixed"]
     has_text = bool(request.text and request.text.strip())
@@ -189,6 +192,9 @@ async def chat_stream(
     if memory_summary:
         system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
 
+    # 多模态请求的超时秒数（视觉模型较慢，给更多时间）
+    multimodal_timeout = max(settings.ai_timeout, 60.0)
+
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         try:
             full_content = ""
@@ -197,12 +203,22 @@ async def chat_stream(
             image_desc = None
             if has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
-                logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type}")
-                multimodal_result = await service._generate_multimodal(
-                    system_prompt=system_prompt,
-                    text=request.text if has_text else None,
-                    image=request.image,
-                )
+                logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type} | timeout={multimodal_timeout}s")
+                try:
+                    async with asyncio.timeout(multimodal_timeout):
+                        multimodal_result = await service._generate_multimodal(
+                            system_prompt=system_prompt,
+                            text=request.text if has_text else None,
+                            image=request.image,
+                        )
+                except TimeoutError:
+                    logger.warning(f"多模态生成超时 | user_id={user_id} | timeout={multimodal_timeout}s")
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({"message": f"视觉模型响应超时（{multimodal_timeout}秒），请稍后重试或使用纯文字输入"}, ensure_ascii=False),
+                    }
+                    return
+
                 full_content = multimodal_result["content"]
                 image_desc = multimodal_result.get("image_desc")
                 yield {
@@ -236,7 +252,7 @@ async def chat_stream(
             }
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
             logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200]}")
-            
+
             response = ChatResponse(content=full_content, scene=request.scene, has_image=has_image, image_desc=image_desc)
             task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
             task.add_done_callback(_handle_task_exception)

@@ -4,11 +4,12 @@
 使用 OpenAI 兼容接口调用通义千问模型
 """
 
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional  # noqa: UP035
 
-from openai import AsyncOpenAI, APIError, AuthenticationError, RateLimitError
+import httpx
+from openai import APIError, AsyncOpenAI, AuthenticationError, RateLimitError
 
-from .base import BaseAIProvider, AIProviderException
+from .base import AIProviderException, BaseAIProvider
 
 
 class QwenProvider(BaseAIProvider):
@@ -34,23 +35,29 @@ class QwenProvider(BaseAIProvider):
     
     # 默认模型
     DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.2"
+
+    # 默认超时配置（秒）
+    DEFAULT_TIMEOUT = 30.0
     
-    def __init__(self, api_key: str, base_url: str, model: Optional[str] = None):
+    def __init__(self, api_key: str, base_url: str, model: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT):
         """
         初始化通义千问 Provider
-        
+
         Args:
             api_key: API Key
             base_url: OpenAI 兼容接口地址
             model: 模型名称，默认使用 Qwen/Qwen-Turbo
                    可选值：Qwen/Qwen-Turbo, Qwen/Qwen-Plus, Qwen/Qwen-Max 等
+            timeout: API 调用超时秒数（默认 30s）
         """
         super().__init__(api_key=api_key, model=model or self.DEFAULT_MODEL)
-        
-        # 初始化 OpenAI 兼容客户端
+
+        self.timeout = timeout
+        # 初始化 OpenAI 兼容客户端，配置超时
         self.client = AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            timeout=httpx.Timeout(timeout, connect=10.0),
         )
     
     async def generate(
