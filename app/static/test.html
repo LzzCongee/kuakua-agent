@@ -678,7 +678,7 @@
             if (hasImage) body.image = pendingImages[0];
 
             try {
-                const res = await fetch(`${API_BASE}/api/chat`, {
+                const res = await fetch(`${API_BASE}/api/chat?session_id=${sessionId}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1027,7 +1027,6 @@
                 if (data.code === 0 && data.data && data.data.length) {
                     let html = '';
                     data.data.forEach(s => {
-                        const msgCount = s.messages ? s.messages.length : 0;
                         html += `
                         <div class="session-card" id="session-${s.session_id}">
                             <div class="header" onclick="toggleSession('${s.session_id}')">
@@ -1035,9 +1034,9 @@
                                     <strong>${s.session_id}</strong>
                                     <div class="session-meta">
                                         <span>场景: ${s.scene || '-'}</span>
-                                        <span>消息数: ${msgCount}</span>
+                                        <span>消息数: ${s.message_count || 0}</span>
                                         <span>创建: ${formatTime(s.created_at)}</span>
-                                        <span>更新: ${formatTime(s.updated_at)}</span>
+                                        <span>更新: ${formatTime(s.last_message_at || s.updated_at)}</span>
                                     </div>
                                 </div>
                                 <button class="expand-btn" id="btn-${s.session_id}">展开消息</button>

@@ -214,30 +214,32 @@ async def get_user_sessions(
     user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[list[SessionResponse]]:
     """
-    获取用户的会话历史
-    
+    获取用户的会话历史（列表，不含消息详情）
+
     Args:
         limit: 返回数量限制
-        
+
     Returns:
-        会话列表
+        会话列表（message_count 用于前端展示计数，messages 为空）
     """
     logger.info(f"获取用户会话历史 | user_id={user_id} | limit={limit}")
     sessions = await service.get_recent_sessions(user_id, limit)
-    
+
     results = [
         SessionResponse(
             id=s.id,
             session_id=s.session_id,
             user_id=s.user_id,
             scene=s.scene,
-            messages=_parse_json_list(s.messages),
+            message_count=s.message_count or 0,
+            last_message_at=s.last_message_at,
+            messages=[],  # 列表接口不返回消息详情，前端点击展开时调用详情接口
             created_at=s.created_at,
             updated_at=s.updated_at,
         )
         for s in sessions
     ]
-    
+
     logger.info(f"用户会话历史获取完成 | user_id={user_id} | count={len(results)}")
     return ApiResponse(data=results)
 
@@ -250,10 +252,10 @@ async def create_or_update_session(
 ) -> ApiResponse[SessionResponse]:
     """
     创建或更新会话
-    
+
     Args:
         data: 会话创建数据
-        
+
     Returns:
         创建/更新的会话信息
     """
@@ -262,21 +264,18 @@ async def create_or_update_session(
         session_id=data.session_id,
         scene=data.scene
     )
-    
-    # 如果提供了消息，更新会话
-    if data.messages:
-        session.messages = json.dumps(data.messages, ensure_ascii=False)
-        await service.session.flush()
-    
+
     logger.info(f"会话创建/更新完成 | user_id={user_id} | session_id={data.session_id}")
-    
+
     return ApiResponse(
         data=SessionResponse(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
             scene=session.scene,
-            messages=data.messages,
+            message_count=session.message_count or 0,
+            last_message_at=session.last_message_at,
+            messages=[],
             created_at=session.created_at,
             updated_at=session.updated_at
         )
@@ -290,36 +289,38 @@ async def update_session(
     service: MemoryServiceDep,
 ) -> ApiResponse[SessionResponse]:
     """
-    更新会话消息
-    
+    更新会话（仅支持更新 scene）
+
     Args:
         session_id: 会话ID
         data: 更新数据
-        
+
     Returns:
         更新后的会话信息
     """
-    logger.info(f"更新会话 | session_id={session_id} | messages_count={len(data.messages) if data.messages else 0}")
-    
-    session = await service.update_session(session_id, data.messages)
-    
+    logger.info(f"更新会话 | session_id={session_id}")
+
+    session = await service.get_session(session_id)
+
     if not session:
         logger.warning(f"会话不存在 | session_id={session_id}")
         raise HTTPException(status_code=404, detail="会话不存在")
-    
+
     if data.scene:
         session.scene = data.scene
         await service.session.flush()
-    
+
     logger.info(f"会话更新完成 | session_id={session_id}")
-    
+
     return ApiResponse(
         data=SessionResponse(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
             scene=session.scene,
-            messages=_parse_json_list(session.messages),
+            message_count=session.message_count or 0,
+            last_message_at=session.last_message_at,
+            messages=[],
             created_at=session.created_at,
             updated_at=session.updated_at
         )
@@ -332,26 +333,39 @@ async def get_session_by_id(
     service: MemoryServiceDep,
 ) -> ApiResponse[SessionResponse]:
     """
-    根据 session_id 获取会话详情
-    
+    根据 session_id 获取会话详情（含消息列表）
+
     Args:
         session_id: 会话ID
-        
+
     Returns:
-        会话详细信息
+        会话详细信息（包含完整消息列表）
     """
     session = await service.get_session(session_id)
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
-    
+
+    # 获取会话的消息
+    messages = await service.get_session_messages(session_id, limit=50)
+    message_list = [
+        {
+            "role": msg.role,
+            "content": msg.content,
+            "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+        }
+        for msg in messages
+    ]
+
     return ApiResponse(
         data=SessionResponse(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
             scene=session.scene,
-            messages=_parse_json_list(session.messages),
+            message_count=session.message_count or 0,
+            last_message_at=session.last_message_at,
+            messages=message_list,
             created_at=session.created_at,
             updated_at=session.updated_at
         )

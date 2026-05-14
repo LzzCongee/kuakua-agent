@@ -160,10 +160,16 @@ class Settings(BaseSettings):
         description="supermemory MCP Server SSE 地址"
     )
 
-    # SSE 连接附加请求头（如 token 鉴权）
+    # SSE 连接 token（作为 header 传递，用于服务端标识调用方）
+    supermemory_token: str = Field(
+        default="kuakua-agent",
+        description="MCP 连接 token，作为请求头传递给 MCP Server"
+    )
+
+    # SSE 连接附加请求头（如需额外 header）
     supermemory_headers: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="SSE 连接附加请求头（如 token 鉴权）"
+        description="SSE 连接附加请求头（优先级高于 supermemory_token）"
     )
 
     # 是否启用 supermemory MCP

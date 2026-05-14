@@ -35,12 +35,18 @@ class MCPClient:
 
     def __init__(self) -> None:
         self.url: str = settings.supermemory_url
-        self.headers: Dict[str, str] = settings.supermemory_headers or {}
         self.timeout: float = settings.supermemory_timeout
         self.enabled: bool = settings.supermemory_enabled
 
+        # 构建 headers：优先使用 supermemory_headers，否则用 supermemory_token
+        if settings.supermemory_headers:
+            self.headers: Dict[str, str] = dict(settings.supermemory_headers)
+        else:
+            self.headers = {"token": settings.supermemory_token}
+
         self._session: Any = None  # ClientSession，无类型注解避免循环 import
         self._client_ctx: Any = None
+        self._connected: bool = False
 
     async def connect(self) -> None:
         """建立 SSE 连接并完成 MCP 协议握手（应用启动时调用）"""
@@ -52,7 +58,11 @@ class MCPClient:
             from mcp.client.sse import sse_client
             from mcp import ClientSession
 
-            logger.info(f"正在建立 MCP 连接: {self.url}")
+            # 掩码显示 token（只显示前4位）
+            token = self.headers.get("token", "")
+            masked_token = token[:4] + "***" if len(token) > 4 else token
+            logger.info(f"正在建立 MCP 连接 | url={self.url} | token={masked_token} | headers_keys={list(self.headers.keys())}")
+
             # 使用 wait_for 包装连接和握手过程，避免启动阻塞
             async with asyncio.timeout(self.timeout):
                 self._client_ctx = sse_client(self.url, headers=self.headers)
@@ -60,17 +70,26 @@ class MCPClient:
                 self._session = ClientSession(read, write)
 
                 # MCP 协议握手：initialize → list_tools
+                logger.debug(f"MCP 开始 initialize 握手 | timeout={self.timeout}s")
                 await self._session.initialize()
                 tools = await self._session.list_tools()
                 tool_names = [t.name for t in tools]
+                self._connected = True
                 logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
         except asyncio.TimeoutError:
-            logger.error(f"MCP 连接超时 ({self.timeout}s): {self.url}")
+            logger.error(
+                f"MCP 连接超时 ({self.timeout}s) | url={self.url}\n"
+                f"  SSE 连接成功但 MCP 握手无响应，请检查：\n"
+                f"  1. MCP Server 进程是否正常运行\n"
+                f"  2. Server 端日志有无 initialize 请求记录\n"
+                f"  3. nginx 是否配置了 proxy_buffering off（SSE 需要）"
+            )
             self._session = None
-            # 注意：这里不需要手动调用 __aexit__，因为 timeout 抛出异常会中断 aenter
+            self._connected = False
         except Exception as e:
-            logger.error(f"MCP 连接失败: {e}")
+            logger.error(f"MCP 连接失败 | url={self.url} | error={type(e).__name__}: {e}")
             self._session = None
+            self._connected = False
 
     async def call(self, tool_name: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """
@@ -78,13 +97,14 @@ class MCPClient:
 
         Args:
             tool_name: MCP 工具名（如 add_memory、search_memory）
-            **kwargs: 工具参数
+            **kwargs: 工具参数（如 user_id、query、content 等）
 
         Returns:
             dict: 工具返回结果（已解析 content）
             None: 调用失败或降级时
         """
         if not self.enabled or self._session is None:
+            logger.debug(f"MCP 调用跳过 [{tool_name}] | enabled={self.enabled} | connected={self._connected}")
             return None
 
         try:
@@ -100,10 +120,10 @@ class MCPClient:
             return {}
 
         except asyncio.TimeoutError:
-            logger.warning(f"MCP 调用超时 [{tool_name}]")
+            logger.warning(f"MCP 调用超时 [{tool_name}] | timeout={self.timeout}s")
             return None
         except Exception as e:
-            logger.warning(f"MCP 调用失败 [{tool_name}]: {e}")
+            logger.warning(f"MCP 调用失败 [{tool_name}] | error={type(e).__name__}: {e}")
             return None
 
     async def disconnect(self) -> None:

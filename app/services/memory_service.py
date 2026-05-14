@@ -19,7 +19,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.logging import get_logger
-from ..models.models import Milestone, Session, UserProfile
+from ..models.models import Message, Milestone, Session, UserProfile
 from ..models.schemas import (
     MemorySummary,
     MilestoneCreate,
@@ -63,32 +63,32 @@ class MemoryService:
     ) -> Session:
         """
         获取或创建会话
-        
+
         Args:
             user_id: 用户ID
             session_id: 会话ID（前端生成）
             scene: 场景标签
-            
+
         Returns:
             Session: 会话记录
         """
         stmt = select(Session).where(Session.session_id == session_id)
         result = await self.session.execute(stmt)
         session_obj = result.scalar_one_or_none()
-        
+
         if not session_obj:
             logger.debug(f"创建新会话 | user_id={user_id} | session_id={session_id} | scene={scene}")
             session_obj = Session(
                 session_id=session_id,
                 user_id=user_id,
                 scene=scene,
-                messages="[]"
+                message_count=0,
             )
             self.session.add(session_obj)
             await self.session.flush()
         else:
             logger.debug(f"获取已有会话 | session_id={session_id} | user_id={session_obj.user_id} | scene={session_obj.scene}")
-        
+
         return session_obj
 
     async def get_session(self, session_id: str) -> Session | None:
@@ -109,40 +109,161 @@ class MemoryService:
 
     async def update_session(self, session_id: str, messages: list[dict[str, Any]]) -> Session | None:
         """
-        更新会话消息
-        
+        更新会话消息（兼容旧接口，内部使用 Message 表）
+
         Args:
             session_id: 会话ID
             messages: 新的消息列表
-            
+
         Returns:
             Optional[Session]: 更新后的会话记录
         """
         session = await self.get_session(session_id)
         if session:
-            session.messages = json.dumps(messages, ensure_ascii=False)
             session.updated_at = datetime.now(timezone.utc)
             await self.session.flush()
-            logger.debug(f"会话消息已更新 | session_id={session_id} | messages_count={len(messages)}")
+            logger.debug(f"会话已更新 | session_id={session_id}")
         else:
             logger.debug(f"会话不存在，无法更新 | session_id={session_id}")
         return session
 
+    async def add_message(
+        self,
+        session_id: str,
+        trace_id: str,
+        role: str,
+        content: str,
+        message_type: str = "text",
+        has_image: bool = False,
+        image_desc: str | None = None,
+        scene: str = "general",
+        emotion: str | None = None,
+    ) -> Message:
+        """
+        添加消息到会话
+
+        Args:
+            session_id: 会话ID
+            trace_id: 请求追踪ID
+            role: 角色 (user / assistant)
+            content: 消息内容
+            message_type: 消息类型 (text / image / mixed)
+            has_image: 是否包含图片
+            image_desc: 图片描述
+            scene: 场景标签
+            emotion: 情绪标签
+
+        Returns:
+            Message: 创建的消息记录
+        """
+        message = Message(
+            session_id=session_id,
+            trace_id=trace_id,
+            role=role,
+            content=content,
+            message_type=message_type,
+            has_image=has_image,
+            image_desc=image_desc,
+            scene=scene,
+            emotion=emotion,
+        )
+        self.session.add(message)
+
+        # 更新会话的消息计数和最后消息时间
+        session = await self.get_session(session_id)
+        if session:
+            session.message_count = (session.message_count or 0) + 1
+            session.last_message_at = datetime.now(timezone.utc)
+
+        await self.session.flush()
+        logger.debug(f"消息已添加 | session_id={session_id} | trace_id={trace_id} | role={role}")
+        return message
+
+    async def get_session_messages(
+        self, session_id: str, limit: int = 50
+    ) -> list[Message]:
+        """
+        获取会话的消息列表
+
+        Args:
+            session_id: 会话ID
+            limit: 返回数量限制
+
+        Returns:
+            list[Message]: 消息列表（按时间正序）
+        """
+        stmt = (
+            select(Message)
+            .where(Message.session_id == session_id)
+            .order_by(Message.created_at.asc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        messages = list(result.scalars().all())
+        logger.debug(f"查询会话消息 | session_id={session_id} | count={len(messages)}")
+        return messages
+
+    async def get_recent_messages(
+        self, session_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """
+        获取会话最近的消息（用于记忆注入）
+
+        Args:
+            session_id: 会话ID
+            limit: 返回数量限制
+
+        Returns:
+            list[dict]: 消息字典列表
+        """
+        stmt = (
+            select(Message)
+            .where(Message.session_id == session_id)
+            .order_by(Message.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        messages = list(result.scalars().all())
+
+        # 转换为字典格式并反转顺序（最新的在后）
+        return [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+            }
+            for msg in reversed(messages)
+        ]
+
+    async def get_message_by_trace_id(self, trace_id: str) -> Message | None:
+        """
+        根据 trace_id 获取消息
+
+        Args:
+            trace_id: 请求追踪ID
+
+        Returns:
+            Optional[Message]: 消息记录
+        """
+        stmt = select(Message).where(Message.trace_id == trace_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[Session]:
         """
         获取用户最近的会话记录
-        
+
         Args:
             user_id: 用户ID
             limit: 返回数量限制
-            
+
         Returns:
-            list[Session]: 会话列表（按时间倒序）
+            list[Session]: 会话列表（按最后消息时间倒序）
         """
         stmt = (
             select(Session)
             .where(Session.user_id == user_id)
-            .order_by(Session.updated_at.desc())
+            .order_by(Session.last_message_at.desc().nullslast(), Session.updated_at.desc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
@@ -486,15 +607,10 @@ class MemoryService:
         
         logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)}")
 
-        # 获取最近会话
+        # 获取最近会话消息
         recent_messages: list[dict[str, Any]] = []
         if session_id:
-            session = await self.get_session(session_id)
-            if session and session.messages:
-                try:
-                    recent_messages = json.loads(session.messages)
-                except (json.JSONDecodeError, TypeError):
-                    recent_messages = []
+            recent_messages = await self.get_recent_messages(session_id, limit=10)
             logger.debug(f"记忆汇总: 会话 | session_id={session_id} | messages_count={len(recent_messages)}")
         else:
             logger.debug("记忆汇总: 无 session_id，跳过会话消息")

@@ -67,10 +67,10 @@ class ABTest(Base):
 
 class Session(Base):
     """
-    短期会话记忆表 ORM 模型
-    
-    存储用户单次打开小程序的对话上下文，包括最近3-5轮对话、场景和情绪状态。
-    会话2小时后自动过期（通过 created_at 字段计算）。
+    会话记忆表 ORM 模型
+
+    存储用户会话的元数据，会话2小时后自动过期（通过 created_at 字段计算）。
+    具体消息内容存储在 messages 表中。
     """
     __tablename__ = "sessions"
 
@@ -78,9 +78,39 @@ class Session(Base):
     session_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, default="default", index=True)
     scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
-    messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON格式存储消息列表
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 消息总数
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 最后消息时间
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    # 关系
+    messages: Mapped[list["Message"]] = relationship("Message", back_populates="session", lazy="selectin")
+
+
+class Message(Base):
+    """
+    消息表 ORM 模型
+
+    存储每条对话消息，支持请求追踪和独立操作。
+    每条消息都有唯一的 trace_id 用于关联日志和错误追踪。
+    """
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(100), ForeignKey("sessions.session_id"), nullable=False, index=True)
+    trace_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # 请求追踪ID
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user / assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # 消息内容
+    message_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")  # text / image / mixed
+    has_image: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    image_desc: Mapped[str | None] = mapped_column(Text, nullable=True)  # 图片描述（多模态）
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # 场景标签
+    emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 检测到的情绪
+    token_usage: Mapped[int | None] = mapped_column(Integer, nullable=True)  # token消耗（可选）
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+
+    # 关系
+    session: Mapped["Session"] = relationship("Session", back_populates="messages")
 
 
 class UserProfile(Base):

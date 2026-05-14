@@ -316,12 +316,10 @@ class SessionCreate(BaseModel):
         default="general",
         description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
     )
-    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
 
 
 class SessionUpdate(BaseModel):
     """更新会话请求模型"""
-    messages: list[dict[str, Any]] = Field(..., description="消息列表")
     scene: Optional[str] = Field(default=None, description="场景标签")
 
 
@@ -336,7 +334,9 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., description="会话ID")
     user_id: str = Field(..., description="用户ID")
     scene: str = Field(..., description="场景标签")
-    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表")
+    message_count: int = Field(default=0, description="消息总数")
+    last_message_at: Optional[datetime] = Field(default=None, description="最后消息时间")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表（仅详情接口返回）")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: Optional[datetime] = Field(default=None, description="更新时间")
 

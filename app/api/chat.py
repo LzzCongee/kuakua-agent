@@ -35,6 +35,7 @@ from ..models.schemas import (
     PromptContent,
     UserProfileUpdate,
 )
+import uuid
 from ..prompts.templates import get_chat_prompt
 from ..providers.qwen import QwenProvider
 from ..services.ab_test_service import ABTestService
@@ -316,9 +317,9 @@ async def _get_user_memory(
 
 
 async def _update_session_after_chat(
-    user_id: str, 
-    session_id: str, 
-    request: ChatRequest, 
+    user_id: str,
+    session_id: str,
+    request: ChatRequest,
     response: ChatResponse
 ) -> None:
     """
@@ -331,7 +332,9 @@ async def _update_session_after_chat(
         logger.debug(f"会话持久化跳过 | session_id 为空")
         return
 
-    logger.info(f"会话持久化开始 | user_id={user_id} | session_id={session_id}")
+    # 生成 trace_id 用于追踪本次请求
+    trace_id = str(uuid.uuid4())
+    logger.info(f"会话持久化开始 | user_id={user_id} | session_id={session_id} | trace_id={trace_id}")
 
     try:
         from ..models.database import get_db
@@ -345,66 +348,52 @@ async def _update_session_after_chat(
                 session_id=session_id,
                 scene=request.scene
             )
-            logger.debug(f"会话对象已就绪 | user_id={user_id} | session_id={session_id} | is_new={session_obj.messages == '[]'}")
-
-            # 解析现有消息
-            messages: list[dict[str, str]] = []
-            if session_obj.messages:
-                try:
-                    messages = json.loads(session_obj.messages)
-                    logger.debug(f"已解析历史消息 | user_id={user_id} | count={len(messages)}")
-                except json.JSONDecodeError:
-                    messages = []
-                    logger.warning(f"历史消息 JSON 解析失败，重置为空 | user_id={user_id}")
+            logger.debug(f"会话对象已就绪 | user_id={user_id} | session_id={session_id}")
 
             # 添加用户消息（支持多模态：图片消息存储描述而非原图）
             has_image = bool(request.image and request.image.strip())
             has_text = bool(request.text and request.text.strip())
-            timestamp = datetime.now(timezone.utc).isoformat()
 
+            # 判断消息类型
+            message_type = "text"
             if has_image and has_text:
-                # 混合输入：文字 + 图片描述
-                content = request.text
-                if response.image_desc:
-                    content += f"\n[图片：{response.image_desc}]"
-                messages.append({
-                    "role": "user", "content": content,
-                    "type": "mixed", "has_image": True, "timestamp": timestamp,
-                })
-                logger.debug(f"添加混合消息 | user_id={user_id} | text={request.text[:50]} | desc={response.image_desc}")
+                message_type = "mixed"
             elif has_image:
-                # 纯图片：存储图片描述
-                messages.append({
-                    "role": "user", "content": response.image_desc or "[图片]",
-                    "type": "image", "has_image": True, "timestamp": timestamp,
-                })
-                logger.debug(f"添加图片消息 | user_id={user_id} | desc={response.image_desc}")
-            elif has_text:
-                # 纯文本（不变）
-                messages.append({
-                    "role": "user", "content": request.text,
-                    "type": "text", "timestamp": timestamp,
-                })
-                logger.debug(f"添加用户消息 | user_id={user_id} | content={request.text[:100]}")
+                message_type = "image"
 
-            # 添加 AI 回复
-            messages.append({
-                "role": "assistant",
-                "content": response.content,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
-            logger.debug(f"添加AI回复 | user_id={user_id} | content={response.content[:100]}")
+            # 构建用户消息内容
+            user_content = request.text or ""
+            if has_image and has_text and response.image_desc:
+                user_content += f"\n[图片：{response.image_desc}]"
+            elif has_image and not has_text:
+                user_content = response.image_desc or "[图片]"
 
-            # 保留最近 10 条消息（避免过长）
-            before_trim = len(messages)
-            messages = messages[-10:]
-            if before_trim > 10:
-                logger.debug(f"消息截断 | user_id={user_id} | before={before_trim} | after=10")
+            # 存储用户消息
+            await memory_service.add_message(
+                session_id=session_id,
+                trace_id=trace_id,
+                role="user",
+                content=user_content,
+                message_type=message_type,
+                has_image=has_image,
+                image_desc=response.image_desc,
+                scene=request.scene,
+            )
+            logger.debug(f"添加用户消息 | user_id={user_id} | trace_id={trace_id} | type={message_type}")
 
-            # 更新会话
-            session_obj.messages = json.dumps(messages, ensure_ascii=False)
+            # 存储 AI 回复（使用同一个 trace_id 关联）
+            await memory_service.add_message(
+                session_id=session_id,
+                trace_id=trace_id,
+                role="assistant",
+                content=response.content,
+                message_type="text",
+                scene=request.scene,
+            )
+            logger.debug(f"添加AI回复 | user_id={user_id} | trace_id={trace_id}")
+
             await db_session.commit()
-            logger.info(f"会话持久化完成 | user_id={user_id} | session_id={session_id} | total_messages={len(messages)}")
+            logger.info(f"会话持久化完成 | user_id={user_id} | session_id={session_id} | trace_id={trace_id}")
 
             # 混合提取：情绪 + 偏好 + 里程碑（关键词兜底 + LLM 主力）
             extraction_result = None
@@ -463,7 +452,7 @@ async def _update_session_after_chat(
             logger.debug(f"语义记忆保存完成 | user_id={user_id}")
     except Exception:
         # 后台任务失败不影响主流程，但必须记录日志
-        logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id}")
+        logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id} | trace_id={trace_id}")
 
 
 async def _update_session_after_chat_bg(
