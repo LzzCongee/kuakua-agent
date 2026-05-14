@@ -228,6 +228,7 @@ class ChatResponse(BaseModel):
     has_image: bool = Field(default=False, description="是否包含图片输入")
     image_desc: str | None = Field(default=None, description="AI 对图片的简短描述（仅多模态输入时有值）")
     created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
+    debug: Optional[ChatDebugInfo] = Field(default=None, description="调试信息（仅 debug=true 时返回）")
 
 
 # ==================== Admin 相关模型 ====================
@@ -414,6 +415,20 @@ class MilestoneResponse(BaseModel):
     importance: int = Field(..., description="重要性")
     is_achieved: bool = Field(default=False, description="是否达成")
     created_at: Optional[datetime] = Field(default=None, description="创建时间")
+
+
+class ChatDebugInfo(BaseModel):
+    """对话调试信息模型"""
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+
+    system_prompt: str = Field(..., description="最终 system prompt（含记忆注入）")
+    user_message: str = Field(..., description="发送给模型的用户消息")
+    prompt_source: str = Field(..., description="prompt 来源：ab_test / db / template")
+    input_type: str = Field(..., description="输入类型：text_only / image_only / mixed")
+    memory_summary: Optional[dict[str, Any]] = Field(default=None, description="记忆汇总快照")
+    mcp_connected: bool = Field(default=False, description="MCP 连接状态")
+    mcp_calls: list[dict[str, Any]] = Field(default_factory=list, description="MCP 调用记录")
+    extraction: Optional[dict[str, Any]] = Field(default=None, description="记忆提取结果")
 
 
 class MemorySummary(BaseModel):

@@ -53,6 +53,7 @@ class MCPClient:
         self._session: Any = None  # ClientSession，无类型注解避免循环 import
         self._exit_stack: Optional[AsyncExitStack] = None
         self._connected: bool = False
+        self._available_tools: list[str] = []
 
     async def connect(self) -> None:
         """建立 SSE 连接并完成 MCP 协议握手（应用启动时调用）"""
@@ -94,6 +95,7 @@ class MCPClient:
                 tools_result = await self._session.list_tools()
                 tool_names = [t.name for t in tools_result.tools]
                 self._connected = True
+                self._available_tools = tool_names
                 logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
         except asyncio.TimeoutError:
             logger.error(
@@ -118,6 +120,17 @@ class MCPClient:
         self._exit_stack = None
         self._session = None
         self._connected = False
+        self._available_tools = []
+
+    @property
+    def is_connected(self) -> bool:
+        """返回 MCP 连接是否可用"""
+        return self.enabled and self._connected and self._session is not None
+
+    @property
+    def available_tools(self) -> list[str]:
+        """返回当前可用的 MCP 工具列表"""
+        return self._available_tools
 
     async def call(self, tool_name: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """

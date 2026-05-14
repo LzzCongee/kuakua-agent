@@ -316,6 +316,130 @@
             font-size: 11px;
             margin-left: 6px;
         }
+
+        /* 调试面板 */
+        .debug-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 15px;
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            user-select: none;
+        }
+        .debug-toggle input[type="checkbox"] {
+            width: auto;
+            accent-color: #e91e63;
+        }
+        .debug-panel {
+            margin-top: 15px;
+            border: 1px solid #e91e63;
+            border-radius: 8px;
+            background: #fff;
+            display: none;
+        }
+        .debug-panel.active { display: block; }
+        .debug-panel .debug-header {
+            background: #fce4ec;
+            padding: 10px 15px;
+            border-radius: 7px 7px 0 0;
+            font-weight: 600;
+            color: #c2185b;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .debug-section {
+            border-top: 1px solid #f8bbd0;
+            padding: 12px 15px;
+        }
+        .debug-section h4 {
+            font-size: 13px;
+            color: #c2185b;
+            margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .debug-section h4::before {
+            content: '▼ ';
+            font-size: 10px;
+        }
+        .debug-section h4.collapsed::before {
+            content: '▶ ';
+        }
+        .debug-section .debug-content {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .debug-section .debug-content.collapsed {
+            display: none;
+        }
+        .debug-prompt {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+        }
+        .debug-kv {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 4px 10px;
+            font-size: 12px;
+        }
+        .debug-kv .key {
+            color: #888;
+            text-align: right;
+        }
+        .debug-kv .key::after { content: ':'; }
+        .debug-kv .value { color: #333; }
+        .mcp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .mcp-table th {
+            background: #fce4ec;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 500;
+            color: #c2185b;
+        }
+        .mcp-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #f8bbd0;
+        }
+        .mcp-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mcp-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .mcp-status .dot.green { background: #4caf50; }
+        .mcp-status .dot.red { background: #f44336; }
+        .tag-list {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .extraction-card {
+            background: #f3e5f5;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 6px;
+        }
     </style>
 </head>
 <body>
@@ -376,6 +500,9 @@
                     <button onclick="sendChat()" id="sendBtn">发送消息</button>
                     <button class="secondary" onclick="sendStream()" id="streamBtn">流式输出</button>
                     <button class="stop" onclick="stopGeneration()" id="stopBtn" style="display:none;">停止回复</button>
+                    <label class="debug-toggle">
+                        <input type="checkbox" id="debugMode"> 调试模式
+                    </label>
                 </div>
             </div>
             
@@ -389,6 +516,37 @@
                     <span style="font-size: 12px;">拖动底部边框可调整高度</span>
                 </div>
                 <div class="resize-handle"></div>
+            </div>
+
+            <!-- 调试面板 -->
+            <div class="debug-panel" id="debugPanel">
+                <div class="debug-header">
+                    <span>调试信息</span>
+                    <span id="debugTimestamp" style="font-size:12px;font-weight:normal;"></span>
+                </div>
+
+                <div class="debug-section">
+                    <h4 onclick="toggleDebugSection(this)">Prompt 构建</h4>
+                    <div class="debug-content">
+                        <div class="debug-kv" id="debugPromptMeta"></div>
+                        <div class="debug-prompt" id="debugSystemPrompt" style="margin-top:8px;"></div>
+                    </div>
+                </div>
+
+                <div class="debug-section">
+                    <h4 onclick="toggleDebugSection(this)">记忆注入</h4>
+                    <div class="debug-content" id="debugMemory"></div>
+                </div>
+
+                <div class="debug-section">
+                    <h4 onclick="toggleDebugSection(this)">MCP 服务</h4>
+                    <div class="debug-content" id="debugMCP"></div>
+                </div>
+
+                <div class="debug-section">
+                    <h4 onclick="toggleDebugSection(this)">记忆提取</h4>
+                    <div class="debug-content" id="debugExtraction"></div>
+                </div>
             </div>
         </div>
         
@@ -663,6 +821,7 @@
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
+            const debug = isDebugMode();
 
             if (!text && !hasImage) {
                 alert('请输入内容或上传图片');
@@ -679,7 +838,10 @@
             if (hasImage) body.image = pendingImages[0];
 
             try {
-                const res = await fetch(`${API_BASE}/api/chat?session_id=${sessionId}`, {
+                let url = `${API_BASE}/api/chat?session_id=${sessionId}`;
+                if (debug) url += '&debug=true';
+
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -690,13 +852,24 @@
 
                 const data = await res.json();
 
+                // 调试模式下，即使有错误也尝试渲染调试面板
+                if (debug && data.data && data.data.debug) {
+                    renderDebugPanel(data.data.debug);
+                }
+
                 if (data.code === 0) {
                     appendMessage('user', text || '', hasImage);
                     appendMessage('assistant', data.data.content);
                     document.getElementById('chatInput').value = '';
                     clearImages();
                 } else {
-                    alert(`错误: ${data.message}`);
+                    // 调试模式下如果有部分内容，不弹 alert
+                    if (debug && data.data && data.data.debug) {
+                        appendMessage('user', text || '', hasImage);
+                        appendMessage('assistant', data.data.content || `[错误] ${data.message}`);
+                    } else {
+                        alert(`错误: ${data.message}`);
+                    }
                 }
             } catch (e) {
                 alert(`请求失败: ${e.message}`);
@@ -712,6 +885,7 @@
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
+            const debug = isDebugMode();
 
             if (!text && !hasImage) {
                 alert('请输入内容或上传图片');
@@ -731,10 +905,14 @@
 
             let content = '';
             let stopped = false;
+            let debugData = null;
             let lastMsg = document.querySelector('.message.assistant:last-child .content');
 
             try {
-                const res = await fetch(`${API_BASE}/api/chat/stream?session_id=${sessionId}`, {
+                let url = `${API_BASE}/api/chat/stream?session_id=${sessionId}`;
+                if (debug) url += '&debug=true';
+
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -766,18 +944,22 @@
                                 if (currentEvent === 'chunk' && data.content) {
                                     content += data.content;
                                     if (lastMsg) lastMsg.textContent = content;
+                                } else if (currentEvent === 'debug') {
+                                    debugData = data;
                                 } else if (currentEvent === 'error') {
-                                    // 后端返回错误事件
                                     const errMsg = data.message || '生成失败';
                                     if (lastMsg) lastMsg.textContent = content || errMsg;
                                     appendErrorNote(lastMsg, errMsg);
                                 }
-                                // done 事件不追加内容，只用于确认完成
                             } catch (e) {}
                         }
                     }
                 }
                 clearImages();
+                // 渲染调试面板
+                if (debug && debugData) {
+                    renderDebugPanel(debugData);
+                }
             } catch (e) {
                 if (e.name === 'AbortError') {
                     stopped = true;
@@ -791,7 +973,6 @@
                 }
             } finally {
                 setGeneratingState(false);
-                // 中断/停止的消息也保留到历史（业界统一做法：ChatGPT/Claude/Kimi 都保留）
                 if (content && stopped) {
                     document.getElementById('chatInput').value = '';
                 }
@@ -1136,6 +1317,107 @@
             document.getElementById('sessionsResult').innerHTML = '';
         }
         
+        // ========== 调试面板 ==========
+        function isDebugMode() {
+            return document.getElementById('debugMode').checked;
+        }
+
+        function toggleDebugSection(header) {
+            header.classList.toggle('collapsed');
+            const content = header.nextElementSibling;
+            content.classList.toggle('collapsed');
+        }
+
+        function renderDebugPanel(debug) {
+            if (!debug) return;
+
+            const panel = document.getElementById('debugPanel');
+            panel.classList.add('active');
+
+            // 时间戳
+            document.getElementById('debugTimestamp').textContent =
+                new Date().toLocaleTimeString('zh-CN');
+
+            // Prompt 构建
+            document.getElementById('debugPromptMeta').innerHTML = `
+                <span class="key">来源</span><span class="value">${debug.prompt_source}</span>
+                <span class="key">输入类型</span><span class="value">${debug.input_type}</span>
+                <span class="key">用户消息</span><span class="value">${escapeHtml(debug.user_message || '(无)')}</span>
+            `;
+            document.getElementById('debugSystemPrompt').textContent = debug.system_prompt;
+
+            // 记忆注入
+            const mem = debug.memory_summary;
+            const memContainer = document.getElementById('debugMemory');
+            if (mem) {
+                let memHtml = '<div class="debug-kv">';
+                memHtml += `<span class="key">偏好场景</span><span class="value">${mem.prefer_scene || '-'}</span>`;
+                memHtml += `<span class="key">偏好风格</span><span class="value">${mem.prefer_style || '-'}</span>`;
+                memHtml += `<span class="key">用户标签</span><span class="value"><span class="tag-list">${(mem.user_tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span></span>`;
+                memHtml += `<span class="key">当前情绪</span><span class="value">${mem.last_emotion || '-'}</span>`;
+                memHtml += `<span class="key">高光时刻</span><span class="value">${(mem.milestones || []).map(m => escapeHtml(m)).join('; ') || '-'}</span>`;
+                memHtml += `<span class="key">语义记忆</span><span class="value">${(mem.semantic_memories || []).map(m => escapeHtml(m)).join('; ') || '-'}</span>`;
+                memHtml += '</div>';
+                if (mem.recent_messages && mem.recent_messages.length) {
+                    memHtml += '<div style="margin-top:8px;"><strong style="font-size:12px;color:#888;">最近对话：</strong></div>';
+                    mem.recent_messages.forEach(m => {
+                        memHtml += `<div style="font-size:12px;padding:2px 0;"><span style="color:#1976d2;">${m.role}:</span> ${escapeHtml((m.content || '').substring(0, 80))}</div>`;
+                    });
+                }
+                memContainer.innerHTML = memHtml;
+            } else {
+                memContainer.innerHTML = '<span style="color:#888;">无记忆注入</span>';
+            }
+
+            // MCP 服务
+            const mcpContainer = document.getElementById('debugMCP');
+            let mcpHtml = `<div class="mcp-status" style="margin-bottom:8px;">
+                <span class="dot ${debug.mcp_connected ? 'green' : 'red'}"></span>
+                ${debug.mcp_connected ? 'MCP 已连接' : 'MCP 未连接'}
+            </div>`;
+            if (debug.mcp_calls && debug.mcp_calls.length) {
+                mcpHtml += '<table class="mcp-table"><thead><tr><th>工具</th><th>参数</th><th>结果</th><th>耗时</th><th>状态</th></tr></thead><tbody>';
+                debug.mcp_calls.forEach(c => {
+                    const statusIcon = c.success ? '✅' : '❌';
+                    mcpHtml += `<tr>
+                        <td><strong>${c.tool}</strong></td>
+                        <td style="max-width:250px;word-break:break-all;">${escapeHtml(c.args_summary || '')}</td>
+                        <td style="max-width:200px;word-break:break-all;">${escapeHtml(c.result_summary || '')}</td>
+                        <td>${c.duration_ms}ms</td>
+                        <td>${statusIcon}</td>
+                    </tr>`;
+                });
+                mcpHtml += '</tbody></table>';
+            } else {
+                mcpHtml += '<div style="color:#888;font-size:12px;">无 MCP 调用记录</div>';
+            }
+            mcpContainer.innerHTML = mcpHtml;
+
+            // 记忆提取
+            const extContainer = document.getElementById('debugExtraction');
+            const ext = debug.extraction;
+            if (ext) {
+                let extHtml = '<div class="extraction-card">';
+                extHtml += '<div class="debug-kv">';
+                extHtml += `<span class="key">提取来源</span><span class="value">${ext.source || '-'}</span>`;
+                extHtml += `<span class="key">情绪</span><span class="value">${ext.emotion || '-'}</span>`;
+                extHtml += `<span class="key">标签</span><span class="value"><span class="tag-list">${(ext.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span></span>`;
+                extHtml += `<span class="key">场景倾向</span><span class="value">${ext.scene_hint || '-'}</span>`;
+                extHtml += `<span class="key">有里程碑</span><span class="value">${ext.has_milestone ? '是' : '否'}</span>`;
+                if (ext.has_milestone && ext.milestone_content) {
+                    extHtml += `<span class="key">里程碑内容</span><span class="value">${escapeHtml(ext.milestone_content)}</span>`;
+                    extHtml += `<span class="key">里程碑重要性</span><span class="value">${ext.milestone_importance || '-'}</span>`;
+                }
+                extHtml += '</div></div>';
+                extContainer.innerHTML = extHtml;
+            } else {
+                extContainer.innerHTML = '<span style="color:#888;">无记忆提取结果</span>';
+            }
+
+            // 滚动到调试面板
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
         // 初始化
         initSession();
         initImageUpload();
