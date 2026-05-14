@@ -119,31 +119,31 @@ class CloudBaseMemoryService:
         self.env_id = env_id
     
     # ==================== 短期会话记忆 ====================
-    
+
     async def get_or_create_session(
-        self, user_id: str, session_id: str, scene: str = "general"
+        self, user_id: str, session_id: str
     ) -> dict:
         """获取或创建会话"""
         # 查询现有会话
         query = {"session_id": session_id}
         result = await self._query("sessions", query)
-        
+
         if result and result.get("Documents"):
             docs = json.loads(result["Documents"])
             if docs:
                 return docs[0]
-        
+
         # 创建新会话
         now = datetime.now(timezone.utc).isoformat()
         session_data = {
             "session_id": session_id,
             "user_id": user_id,
-            "scene": scene,
-            "messages": [],
+            "message_count": 0,
+            "last_message_at": now,
             "created_at": now,
             "updated_at": now
         }
-        
+
         await self._insert("sessions", json.dumps(session_data))
         return session_data
     

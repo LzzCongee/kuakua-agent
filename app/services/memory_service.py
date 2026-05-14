@@ -59,7 +59,7 @@ class MemoryService:
     # ==================== 短期会话记忆 ====================
 
     async def get_or_create_session(
-        self, user_id: str, session_id: str, scene: str = "general"
+        self, user_id: str, session_id: str
     ) -> Session:
         """
         获取或创建会话
@@ -67,7 +67,6 @@ class MemoryService:
         Args:
             user_id: 用户ID
             session_id: 会话ID（前端生成）
-            scene: 场景标签
 
         Returns:
             Session: 会话记录
@@ -77,17 +76,16 @@ class MemoryService:
         session_obj = result.scalar_one_or_none()
 
         if not session_obj:
-            logger.debug(f"创建新会话 | user_id={user_id} | session_id={session_id} | scene={scene}")
+            logger.debug(f"创建新会话 | user_id={user_id} | session_id={session_id}")
             session_obj = Session(
                 session_id=session_id,
                 user_id=user_id,
-                scene=scene,
                 message_count=0,
             )
             self.session.add(session_obj)
             await self.session.flush()
         else:
-            logger.debug(f"获取已有会话 | session_id={session_id} | user_id={session_obj.user_id} | scene={session_obj.scene}")
+            logger.debug(f"获取已有会话 | session_id={session_id} | user_id={session_obj.user_id}")
 
         return session_obj
 

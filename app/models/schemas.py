@@ -312,15 +312,11 @@ class SessionCreate(BaseModel):
     """创建短期会话请求模型"""
     session_id: str = Field(..., min_length=1, description="会话ID")
     user_id: str = Field(default="default", description="用户ID")
-    scene: str = Field(
-        default="general",
-        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
-    )
 
 
 class SessionUpdate(BaseModel):
     """更新会话请求模型"""
-    scene: Optional[str] = Field(default=None, description="场景标签")
+    pass
 
 
 class SessionResponse(BaseModel):
@@ -333,7 +329,6 @@ class SessionResponse(BaseModel):
     id: int = Field(..., description="会话记录 ID")
     session_id: str = Field(..., description="会话ID")
     user_id: str = Field(..., description="用户ID")
-    scene: str = Field(..., description="场景标签")
     message_count: int = Field(default=0, description="消息总数")
     last_message_at: Optional[datetime] = Field(default=None, description="最后消息时间")
     messages: list[dict[str, Any]] = Field(default_factory=list, description="消息列表（仅详情接口返回）")

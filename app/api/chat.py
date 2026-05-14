@@ -95,7 +95,7 @@ async def chat(
     logger.debug(f"用户输入详情 | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
 
     if not session_id:
-        session_id = f"session_{int(time.time() * 1000)}"
+        session_id = f"session_{user_id}"
 
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
@@ -146,9 +146,9 @@ async def chat_stream(
     """
     logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
     logger.debug(f"用户输入详情(流式) | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
-    
+
     if not session_id:
-        session_id = f"session_{int(time.time() * 1000)}"
+        session_id = f"session_{user_id}"
 
     settings = get_settings()
 
@@ -345,8 +345,7 @@ async def _update_session_after_chat(
             # 获取或创建会话
             session_obj = await memory_service.get_or_create_session(
                 user_id=user_id,
-                session_id=session_id,
-                scene=request.scene
+                session_id=session_id
             )
             logger.debug(f"会话对象已就绪 | user_id={user_id} | session_id={session_id}")
 

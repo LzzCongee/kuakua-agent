@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Float, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..models.database import Base
@@ -17,7 +17,7 @@ from ..models.database import Base
 
 def _utc_now() -> datetime:
     """返回带时区信息的 UTC 时间"""
-    return datetime.now(timezone.utc)
+    return datetime.now(datetime.utc)
 
 
 class Favorite(Base):
@@ -69,7 +69,7 @@ class Session(Base):
     """
     会话记忆表 ORM 模型
 
-    存储用户会话的元数据，会话2小时后自动过期（通过 created_at 字段计算）。
+    存储用户会话的元数据（一个用户对应一个持续会话）。
     具体消息内容存储在 messages 表中。
     """
     __tablename__ = "sessions"
@@ -77,9 +77,8 @@ class Session(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     user_id: Mapped[str] = mapped_column(String(100), nullable=False, default="default", index=True)
-    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
-    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 消息总数
-    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 最后消息时间
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 

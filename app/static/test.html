@@ -600,7 +600,8 @@
         function getSessionId() {
             let sid = document.getElementById('sessionId').value;
             if (!sid) {
-                sid = 'session_' + Date.now();
+                const userId = getUserId();
+                sid = `session_${userId}`;
                 document.getElementById('sessionId').value = sid;
             }
             return sid;
@@ -1033,7 +1034,6 @@
                                 <div>
                                     <strong>${s.session_id}</strong>
                                     <div class="session-meta">
-                                        <span>场景: ${s.scene || '-'}</span>
                                         <span>消息数: ${s.message_count || 0}</span>
                                         <span>创建: ${formatTime(s.created_at)}</span>
                                         <span>更新: ${formatTime(s.last_message_at || s.updated_at)}</span>

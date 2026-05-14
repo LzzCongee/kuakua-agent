@@ -230,10 +230,9 @@ async def get_user_sessions(
             id=s.id,
             session_id=s.session_id,
             user_id=s.user_id,
-            scene=s.scene,
             message_count=s.message_count or 0,
             last_message_at=s.last_message_at,
-            messages=[],  # 列表接口不返回消息详情，前端点击展开时调用详情接口
+            messages=[],
             created_at=s.created_at,
             updated_at=s.updated_at,
         )
@@ -261,8 +260,7 @@ async def create_or_update_session(
     """
     session = await service.get_or_create_session(
         user_id=user_id or data.user_id,
-        session_id=data.session_id,
-        scene=data.scene
+        session_id=data.session_id
     )
 
     logger.info(f"会话创建/更新完成 | user_id={user_id} | session_id={data.session_id}")
@@ -272,7 +270,6 @@ async def create_or_update_session(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
-            scene=session.scene,
             message_count=session.message_count or 0,
             last_message_at=session.last_message_at,
             messages=[],
@@ -289,7 +286,7 @@ async def update_session(
     service: MemoryServiceDep,
 ) -> ApiResponse[SessionResponse]:
     """
-    更新会话（仅支持更新 scene）
+    更新会话
 
     Args:
         session_id: 会话ID
@@ -306,10 +303,6 @@ async def update_session(
         logger.warning(f"会话不存在 | session_id={session_id}")
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    if data.scene:
-        session.scene = data.scene
-        await service.session.flush()
-
     logger.info(f"会话更新完成 | session_id={session_id}")
 
     return ApiResponse(
@@ -317,7 +310,6 @@ async def update_session(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
-            scene=session.scene,
             message_count=session.message_count or 0,
             last_message_at=session.last_message_at,
             messages=[],
@@ -362,7 +354,6 @@ async def get_session_by_id(
             id=session.id,
             session_id=session.session_id,
             user_id=session.user_id,
-            scene=session.scene,
             message_count=session.message_count or 0,
             last_message_at=session.last_message_at,
             messages=message_list,
