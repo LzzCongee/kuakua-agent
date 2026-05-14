@@ -180,7 +180,7 @@ class Settings(BaseSettings):
 
     # 单次 MCP 工具调用超时（秒）
     supermemory_timeout: float = Field(
-        default=5.0,
+        default=15.0,
         description="单次 MCP 工具调用超时（秒）"
     )
 

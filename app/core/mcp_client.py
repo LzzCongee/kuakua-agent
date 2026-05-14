@@ -10,12 +10,14 @@ supermemory MCP Server 提供语义记忆功能：
 
 关键设计：
 - SSE 长连接，应用启动时建立、关闭时释放
+- ClientSession 必须作为异步上下文管理器使用（启动 _receive_loop）
 - 静默降级：服务不可用时返回 None，不抛异常
 - 短超时：避免阻塞主请求流程
 """
 
 import asyncio
 import json
+from contextlib import AsyncExitStack
 from typing import Any, Dict, Optional  # noqa: UP035
 
 from app.config import get_settings
@@ -31,6 +33,10 @@ class MCPClient:
 
     支持 SSE 长连接，自动协议握手，工具动态发现。
     设计为单例，由 FastAPI lifespan 统一管理生命周期。
+
+    重要：ClientSession 必须通过 async with 启动 _receive_loop，
+    否则 send_request 会永远收不到响应（initialize 超时）。
+    使用 AsyncExitStack 管理嵌套的异步上下文管理器生命周期。
     """
 
     def __init__(self) -> None:
@@ -45,7 +51,7 @@ class MCPClient:
             self.headers = {"token": settings.supermemory_token}
 
         self._session: Any = None  # ClientSession，无类型注解避免循环 import
-        self._client_ctx: Any = None
+        self._exit_stack: Optional[AsyncExitStack] = None
         self._connected: bool = False
 
     async def connect(self) -> None:
@@ -63,17 +69,30 @@ class MCPClient:
             masked_token = token[:4] + "***" if len(token) > 4 else token
             logger.info(f"正在建立 MCP 连接 | url={self.url} | token={masked_token} | headers_keys={list(self.headers.keys())}")
 
-            # 使用 wait_for 包装连接和握手过程，避免启动阻塞
+            # 使用 AsyncExitStack 管理嵌套的异步上下文管理器
+            # 1. sse_client 是 async context manager → 提供 read/write 流
+            # 2. ClientSession 是 async context manager → 启动 _receive_loop
+            #    如果不作为上下文管理器使用，_receive_loop 不会启动，
+            #    send_request 将永远收不到响应，导致 initialize 超时
+            self._exit_stack = AsyncExitStack()
+            await self._exit_stack.__aenter__()
+
             async with asyncio.timeout(self.timeout):
-                self._client_ctx = sse_client(self.url, headers=self.headers)
-                read, write = await self._client_ctx.__aenter__()
-                self._session = ClientSession(read, write)
+                # 进入 sse_client 上下文
+                read, write = await self._exit_stack.enter_async_context(
+                    sse_client(self.url, headers=self.headers)
+                )
+
+                # 进入 ClientSession 上下文（启动 _receive_loop）
+                self._session = await self._exit_stack.enter_async_context(
+                    ClientSession(read, write)
+                )
 
                 # MCP 协议握手：initialize → list_tools
                 logger.debug(f"MCP 开始 initialize 握手 | timeout={self.timeout}s")
                 await self._session.initialize()
-                tools = await self._session.list_tools()
-                tool_names = [t.name for t in tools]
+                tools_result = await self._session.list_tools()
+                tool_names = [t.name for t in tools_result.tools]
                 self._connected = True
                 logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
         except asyncio.TimeoutError:
@@ -84,12 +103,21 @@ class MCPClient:
                 f"  2. Server 端日志有无 initialize 请求记录\n"
                 f"  3. nginx 是否配置了 proxy_buffering off（SSE 需要）"
             )
-            self._session = None
-            self._connected = False
+            await self._cleanup()
         except Exception as e:
             logger.error(f"MCP 连接失败 | url={self.url} | error={type(e).__name__}: {e}")
-            self._session = None
-            self._connected = False
+            await self._cleanup()
+
+    async def _cleanup(self) -> None:
+        """清理连接资源"""
+        if self._exit_stack is not None:
+            try:
+                await self._exit_stack.aclose()
+            except Exception:
+                logger.debug("MCP 资源清理时异常（可忽略）", exc_info=True)
+        self._exit_stack = None
+        self._session = None
+        self._connected = False
 
     async def call(self, tool_name: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """
@@ -128,14 +156,8 @@ class MCPClient:
 
     async def disconnect(self) -> None:
         """关闭 SSE 连接（应用关闭时调用）"""
-        if self._client_ctx is not None:
-            try:
-                await self._client_ctx.__aexit__(None, None, None)
-            except Exception:
-                logger.debug("MCP 连接关闭时异常（可忽略）", exc_info=True)
-            self._client_ctx = None
-            self._session = None
-            logger.info("MCP 连接已关闭")
+        await self._cleanup()
+        logger.info("MCP 连接已关闭")
 
 
 # 全局单例（由 lifespan 管理生命周期）

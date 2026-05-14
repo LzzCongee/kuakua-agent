@@ -9,6 +9,7 @@ MCP Server 连接测试脚本
     python scripts/test_mcp.py --test-call              # 测试工具调用
 """
 
+
 import argparse
 import asyncio
 import json
@@ -18,6 +19,13 @@ from urllib.parse import urljoin
 
 import httpx
 
+
+# ==================== 硬编码配置 ====================
+# 直接修改这里的值进行测试，无需命令行参数
+DEFAULT_URL = "http://106.55.151.27/sse"
+DEFAULT_TOKEN = "kuakua-agent"
+DEFAULT_TIMEOUT = 15.0
+# ===================================================
 
 def print_step(step: str, msg: str, status: str = ">>") -> None:
     print(f"  [{status}] {step}: {msg}")
@@ -234,20 +242,22 @@ async def test_sdk_connect(url: str, token: str, timeout: float) -> bool:
         print_info("SDK", f"mcp SDK 已导入 | headers={headers}")
 
         ctx = sse_client(url, headers=headers, timeout=timeout)
-        read, write = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout)
-        print_ok("SSE", f"连接成功 ({time.time()-t0:.2f}s)")
+        try:
+            read, write = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout)
+            print_ok("SSE", f"连接成功 ({time.time()-t0:.2f}s)")
 
-        session = ClientSession(read, write)
-        print_info("握手", "initialize...")
-        await asyncio.wait_for(session.initialize(), timeout=timeout)
-        print_ok("握手", f"initialize 成功 ({time.time()-t0:.2f}s)")
+            async with ClientSession(read, write) as session:
+                print_info("握手", "initialize...")
+                await asyncio.wait_for(session.initialize(), timeout=timeout)
+                print_ok("握手", f"initialize 成功 ({time.time()-t0:.2f}s)")
 
-        print_info("工具", "list_tools...")
-        tools = await asyncio.wait_for(session.list_tools(), timeout=timeout)
-        tool_names = [t.name for t in tools]
-        print_ok("工具", f"{tool_names} ({time.time()-t0:.2f}s)")
+                print_info("工具", "list_tools...")
+                tools_result = await asyncio.wait_for(session.list_tools(), timeout=timeout)
+                tool_names = [t.name for t in tools_result.tools]
+                print_ok("工具", f"{tool_names} ({time.time()-t0:.2f}s)")
 
-        await ctx.__aexit__(None, None, None)
+        finally:
+            await ctx.__aexit__(None, None, None)
         return True
 
     except ImportError:
@@ -288,67 +298,67 @@ async def test_tool_call(url: str, token: str, timeout: float) -> bool:
             print_fail("连接", "SSE 连接超时")
             return False
 
-        session = ClientSession(read, write)
-
         try:
-            await asyncio.wait_for(session.initialize(), timeout=timeout)
-        except asyncio.TimeoutError:
-            print_fail("握手", "initialize 超时")
+            async with ClientSession(read, write) as session:
+                try:
+                    await asyncio.wait_for(session.initialize(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    print_fail("握手", "initialize 超时")
+                    return False
+
+                # 测试 add_memory
+                print_info("add_memory", "写入测试记忆...")
+                try:
+                    result = await asyncio.wait_for(
+                        session.call_tool(
+                            "add_memory",
+                            arguments={
+                                "content": "这是一条测试记忆 - MCP 连接测试",
+                                "user_id": "test_user",
+                                "metadata": {"type": "test"},
+                            },
+                        ),
+                        timeout=timeout,
+                    )
+                    if result.content and hasattr(result.content[0], "text"):
+                        data = json.loads(result.content[0].text)
+                        print_ok("add_memory", f"{data}")
+                    else:
+                        print_ok("add_memory", "调用成功（无返回内容）")
+                except asyncio.TimeoutError:
+                    print_fail("add_memory", f"超时 ({timeout}s)")
+                except Exception as e:
+                    print_fail("add_memory", f"{type(e).__name__}: {e}")
+
+                # 测试 search_memory
+                print_info("search_memory", "搜索测试记忆...")
+                try:
+                    result = await asyncio.wait_for(
+                        session.call_tool(
+                            "search_memory",
+                            arguments={
+                                "query": "测试记忆",
+                                "user_id": "test_user",
+                                "top_k": 3,
+                            },
+                        ),
+                        timeout=timeout,
+                    )
+                    if result.content and hasattr(result.content[0], "text"):
+                        data = json.loads(result.content[0].text)
+                        count = len(data.get("results", []))
+                        print_ok("search_memory", f"返回 {count} 条结果")
+                        for i, item in enumerate(data.get("results", [])[:3]):
+                            print_info(f"  [{i}]", f"{item.get('content', '')[:80]}")
+                    else:
+                        print_info("search_memory", "无返回内容")
+                except asyncio.TimeoutError:
+                    print_fail("search_memory", f"超时 ({timeout}s)")
+                except Exception as e:
+                    print_fail("search_memory", f"{type(e).__name__}: {e}")
+
+        finally:
             await ctx.__aexit__(None, None, None)
-            return False
-
-        # 测试 add_memory
-        print_info("add_memory", "写入测试记忆...")
-        try:
-            result = await asyncio.wait_for(
-                session.call_tool(
-                    "add_memory",
-                    arguments={
-                        "content": "这是一条测试记忆 - MCP 连接测试",
-                        "user_id": "test_user",
-                        "metadata": {"type": "test"},
-                    },
-                ),
-                timeout=timeout,
-            )
-            if result.content and hasattr(result.content[0], "text"):
-                data = json.loads(result.content[0].text)
-                print_ok("add_memory", f"{data}")
-            else:
-                print_ok("add_memory", "调用成功（无返回内容）")
-        except asyncio.TimeoutError:
-            print_fail("add_memory", f"超时 ({timeout}s)")
-        except Exception as e:
-            print_fail("add_memory", f"{type(e).__name__}: {e}")
-
-        # 测试 search_memory
-        print_info("search_memory", "搜索测试记忆...")
-        try:
-            result = await asyncio.wait_for(
-                session.call_tool(
-                    "search_memory",
-                    arguments={
-                        "query": "测试记忆",
-                        "user_id": "test_user",
-                        "top_k": 3,
-                    },
-                ),
-                timeout=timeout,
-            )
-            if result.content and hasattr(result.content[0], "text"):
-                data = json.loads(result.content[0].text)
-                count = len(data.get("results", []))
-                print_ok("search_memory", f"返回 {count} 条结果")
-                for i, item in enumerate(data.get("results", [])[:3]):
-                    print_info(f"  [{i}]", f"{item.get('content', '')[:80]}")
-            else:
-                print_info("search_memory", "无返回内容")
-        except asyncio.TimeoutError:
-            print_fail("search_memory", f"超时 ({timeout}s)")
-        except Exception as e:
-            print_fail("search_memory", f"{type(e).__name__}: {e}")
-
-        await ctx.__aexit__(None, None, None)
         print_ok("完成", f"总耗时 {time.time()-t0:.2f}s")
         return True
 
@@ -362,9 +372,9 @@ async def test_tool_call(url: str, token: str, timeout: float) -> bool:
 
 async def main():
     parser = argparse.ArgumentParser(description="MCP Server 连接测试")
-    parser.add_argument("--url", default="http://106.55.151.27/sse", help="MCP SSE URL")
-    parser.add_argument("--token", default="kuakua-agent", help="token header 值")
-    parser.add_argument("--timeout", type=float, default=10.0, help="超时秒数")
+    parser.add_argument("--url", default=DEFAULT_URL, help="MCP SSE URL")
+    parser.add_argument("--token", default=DEFAULT_TOKEN, help="token header 值")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="超时秒数")
     parser.add_argument("--test-call", action="store_true", help="测试实际工具调用")
     parser.add_argument("--step", type=int, choices=[1, 2, 3, 4], help="只运行指定步骤")
     args = parser.parse_args()
