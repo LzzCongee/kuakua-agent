@@ -20,7 +20,7 @@ from ..core.dependencies import HeaderUserID
 from ..core.logging import get_logger
 from ..models.database import get_session
 from ..models.schemas import ApiResponse, QuoteResponse
-from ..providers.qwen import QwenProvider
+from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.memory_service import MemoryService
 from ..services.quote_service import QuoteService
 
@@ -41,13 +41,13 @@ def get_quote_service() -> QuoteService:
     """
     获取 QuoteService 实例（依赖注入工厂函数）
     
-    创建并配置 QuoteService，使用配置中的 API Key 初始化 QwenProvider。
-    
+    创建并配置 QuoteService，使用配置中的 API Key 初始化 Provider。
+
     Returns:
         QuoteService: 配置好的夸夸生成服务实例
     """
     settings = get_settings()
-    provider = QwenProvider(
+    provider = OpenAICompatibleProvider(
         api_key=settings.modelscope_api_key,
         base_url=settings.ai_base_url,
         model=settings.ai_model

@@ -29,7 +29,7 @@ from ..models.schemas import (
     PromptTestResponse,
     PromptUpdate,
 )
-from ..providers.qwen import QwenProvider
+from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.ab_test_service import ABTestService
 from ..services.prompt_service import PromptService
 
@@ -142,7 +142,7 @@ async def test_prompt(
 
     # 调用 AI 生成
     settings = get_settings()
-    provider = QwenProvider(
+    provider = OpenAICompatibleProvider(
         api_key=settings.modelscope_api_key,
         base_url=settings.ai_base_url,
         model=settings.ai_model,

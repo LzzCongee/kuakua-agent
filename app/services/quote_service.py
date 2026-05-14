@@ -34,8 +34,8 @@ class QuoteService:
         provider: AI Provider 实例，用于生成文案
         
     Example:
-        >>> from app.providers.qwen import QwenProvider
-        >>> provider = QwenProvider(api_key="your-key")
+        >>> from app.providers.openai_compatible import OpenAICompatibleProvider
+        >>> provider = OpenAICompatibleProvider(api_key="your-key", base_url="https://api.minimax.chat/v1")
         >>> service = QuoteService(provider)
         >>> quote = await service.get_random_quote()
     """

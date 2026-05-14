@@ -38,7 +38,7 @@ from ..models.schemas import (
 )
 import uuid
 from ..prompts.templates import get_chat_prompt
-from ..providers.qwen import QwenProvider
+from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
 from ..services.memory_extractor import MemoryExtractor
@@ -101,7 +101,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 def get_chat_service() -> ChatService:
     """获取 ChatService 实例（依赖注入工厂函数）"""
     settings = get_settings()
-    provider = QwenProvider(
+    provider = OpenAICompatibleProvider(
         api_key=settings.modelscope_api_key,
         base_url=settings.ai_base_url,
         model=settings.ai_model,
@@ -555,7 +555,7 @@ async def _update_session_after_chat(
             if request.text:
                 logger.debug(f"开始混合记忆提取 | user_id={user_id} | text={request.text[:100]}")
                 settings = get_settings()
-                provider = QwenProvider(
+                provider = OpenAICompatibleProvider(
                     api_key=settings.modelscope_api_key,
                     base_url=settings.ai_base_url,
                     model=settings.ai_extract_model,
@@ -691,7 +691,7 @@ async def _update_session_after_chat_with_debug(
             extraction_result = None
             if request.text:
                 settings = get_settings()
-                provider = QwenProvider(
+                provider = OpenAICompatibleProvider(
                     api_key=settings.modelscope_api_key,
                     base_url=settings.ai_base_url,
                     model=settings.ai_extract_model,
