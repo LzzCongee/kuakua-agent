@@ -460,7 +460,16 @@ async def _get_user_memory(
     """
     try:
         memory_service = MemoryService(session, mcp_client)
-        return await memory_service.get_memory_summary(user_id, session_id or None)
+        summary = await memory_service.get_memory_summary(user_id, session_id or None)
+        if summary:
+            logger.info(
+                f"记忆汇总结果 | user_id={user_id} | session_id={session_id} | "
+                f"recent_messages={len(summary.recent_messages)} | "
+                f"semantic_memories={len(summary.semantic_memories)} | "
+                f"milestones={len(summary.milestones)} | "
+                f"prefer_scene={summary.prefer_scene} | tags={summary.user_tags}"
+            )
+        return summary
     except Exception:
         # 记忆获取失败时降级为无记忆模式，不影响核心夸夸功能
         logger.warning(f"记忆获取降级 | user_id={user_id} | session_id={session_id}", exc_info=True)
@@ -790,6 +799,7 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
 
     if not parts:
         return system_prompt
-    
+
     memory_block = "\n".join(parts)
+    logger.debug(f"Prompt 记忆注入(流式) | 内容预览: {memory_block[:300]}")
     return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"

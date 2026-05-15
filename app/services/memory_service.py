@@ -523,11 +523,13 @@ class MemoryService:
         )
 
         if not result:
-            logger.debug("语义记忆查询无结果")
+            logger.debug("语义记忆查询无结果 | MCP 返回 null（降级/失败）")
             return []
 
         memories = [item.get("content", "") for item in result.get("results", [])]
-        logger.debug(f"语义记忆查询完成 | count={len(memories)}")
+        logger.debug(f"语义记忆查询完成 | count={len(memories)} | raw_result_keys={list(result.keys())}")
+        for i, mem in enumerate(memories):
+            logger.debug(f"语义记忆[{i}] | content={mem[:100]}")
         return memories
 
     async def save_chat_to_supermemory(
@@ -551,7 +553,7 @@ class MemoryService:
         content = f"用户说：{user_message}\nAI回复：{ai_response}"
 
         logger.info(f"保存语义记忆 | user_id={user_id} | scene={scene} | message_length={len(user_message)} | response_length={len(ai_response)}")
-        await self.mcp.call(
+        result = await self.mcp.call(
             "add_memory",
             content=content,
             user_id=user_id,
@@ -562,6 +564,10 @@ class MemoryService:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
+        if result is None:
+            logger.warning(f"语义记忆保存失败 | user_id={user_id} | MCP 返回 null（连接断开或超时）")
+        else:
+            logger.info(f"语义记忆保存成功 | user_id={user_id} | result_keys={list(result.keys()) if isinstance(result, dict) else type(result)}")
 
     # ==================== 记忆汇总（用于 Prompt 注入）====================
 
@@ -610,6 +616,8 @@ class MemoryService:
         if session_id:
             recent_messages = await self.get_recent_messages(session_id, limit=10)
             logger.debug(f"记忆汇总: 会话 | session_id={session_id} | messages_count={len(recent_messages)}")
+            for i, msg in enumerate(recent_messages[-3:]):
+                logger.debug(f"记忆汇总: 最近消息[{i}] | role={msg.get('role')} | content={str(msg.get('content', ''))[:80]}")
         else:
             logger.debug("记忆汇总: 无 session_id，跳过会话消息")
 

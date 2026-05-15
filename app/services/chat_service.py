@@ -187,9 +187,11 @@ class ChatService:
             parts.append(f"- 高光时刻：{milestones_str}")
         
         if not parts:
+            logger.debug("记忆注入: 无内容可注入")
             return system_prompt
-        
+
         memory_block = "\n".join(parts)
+        logger.debug(f"记忆注入: 最终注入内容 | {memory_block[:300]}")
         return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
     
     async def _generate_text_only(self, system_prompt: str, text: str) -> str:

@@ -149,6 +149,18 @@ class MCPClient:
             return None
 
         try:
+            # 记录调用参数摘要
+            args_summary_parts: list[str] = []
+            for k, v in kwargs.items():
+                if isinstance(v, str) and len(v) > 80:
+                    args_summary_parts.append(f"{k}={v[:80]}...")
+                elif isinstance(v, dict):
+                    args_summary_parts.append(f"{k}={json.dumps(v, ensure_ascii=False)[:80]}")
+                else:
+                    args_summary_parts.append(f"{k}={v}")
+            args_brief = ", ".join(args_summary_parts)
+            logger.info(f"MCP 调用开始 [{tool_name}] | args: {args_brief}")
+
             result = await asyncio.wait_for(
                 self._session.call_tool(tool_name, arguments=kwargs),
                 timeout=self.timeout,
@@ -157,7 +169,11 @@ class MCPClient:
             # 解析 CallToolResult → dict
             # result.content 是 list[TextContent | ImageContent]
             if result.content and hasattr(result.content[0], "text"):
-                return json.loads(result.content[0].text)
+                parsed = json.loads(result.content[0].text)
+                result_keys = list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__
+                logger.info(f"MCP 调用成功 [{tool_name}] | result_keys={result_keys} | result_size={len(result.content[0].text)}")
+                return parsed
+            logger.info(f"MCP 调用成功 [{tool_name}] | 返回空对象")
             return {}
 
         except asyncio.TimeoutError:
