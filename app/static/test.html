@@ -537,6 +537,11 @@
                 </div>
 
                 <div class="debug-section">
+                    <h4 class="collapsed" onclick="toggleDebugSection(this)">最终 Prompt（发给模型）</h4>
+                    <div class="debug-content collapsed" id="debugFinalPrompt" style="white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5;max-height:500px;overflow-y:auto;background:#f8f8f8;padding:10px;border-radius:4px;"></div>
+                </div>
+
+                <div class="debug-section">
                     <h4 onclick="toggleDebugSection(this)">记忆注入</h4>
                     <div class="debug-content" id="debugMemory"></div>
                 </div>
@@ -1400,6 +1405,10 @@
                 <span class="key">用户消息</span><span class="value">${escapeHtml(debug.user_message || '(无)')}</span>
             `;
             document.getElementById('debugSystemPrompt').textContent = debug.system_prompt;
+
+            // 最终 Prompt（发给模型的完整内容）
+            const finalPrompt = `[system]\n${debug.system_prompt}\n\n[user]\n${debug.user_message || ''}`;
+            document.getElementById('debugFinalPrompt').textContent = finalPrompt;
 
             // 记忆注入
             const mem = debug.memory_summary;

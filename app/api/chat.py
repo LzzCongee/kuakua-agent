@@ -786,13 +786,35 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     if memory.last_emotion:
         parts.append(f"- 当前情绪：{memory.last_emotion}")
     
-    # 最近对话（用于保持上下文连贯）
+    # 最近对话（用于保持上下文连贯，按完整轮次拼接）
     if memory.recent_messages:
+        from datetime import datetime
         msg_list: list[str] = []
-        for msg in memory.recent_messages[-3:]:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")[:50]
-            msg_list.append(f"{role}: {content}")
+        msgs = memory.recent_messages
+        # 找最近一条 assistant 消息的位置
+        last_assistant_idx = None
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "assistant":
+                last_assistant_idx = i
+                break
+        if last_assistant_idx is not None:
+            start = max(0, last_assistant_idx - 1)
+            # 时间戳只取 user 消息的，放在整轮对话开头
+            first_msg = msgs[start]
+            ts = first_msg.get("timestamp", "")
+            time_str = ""
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    time_str = f"({dt.strftime('%H:%M')}) "
+                except (ValueError, TypeError):
+                    pass
+            for idx, msg in enumerate(msgs[start:last_assistant_idx + 1]):
+                role = "用户" if msg.get("role") == "user" else "夸夸"
+                content = (msg.get("content") or "")[:80]
+                # 时间戳只加在第一句前面
+                prefix = time_str if idx == 0 else ""
+                msg_list.append(f"{prefix}{role}：{content}")
         if msg_list:
             parts.append(f"- 最近对话：{' | '.join(msg_list)}")
     

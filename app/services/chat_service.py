@@ -171,13 +171,32 @@ class ChatService:
         if memory.last_emotion:
             parts.append(f"- 当前情绪：{memory.last_emotion}")
         
-        # 最近对话（用于保持上下文连贯）
+        # 最近对话（用于保持上下文连贯，按完整轮次拼接）
         if memory.recent_messages:
+            from datetime import datetime as _dt
             msg_list: list[str] = []
-            for msg in memory.recent_messages[-3:]:
-                role = str(msg.get("role", "user"))
-                content = str(msg.get("content", ""))[:50]
-                msg_list.append(f"{role}: {content}")
+            msgs = memory.recent_messages
+            last_assistant_idx = None
+            for i in range(len(msgs) - 1, -1, -1):
+                if msgs[i].get("role") == "assistant":
+                    last_assistant_idx = i
+                    break
+            if last_assistant_idx is not None:
+                start = max(0, last_assistant_idx - 1)
+                first_msg = msgs[start]
+                ts = first_msg.get("timestamp", "")
+                time_str = ""
+                if ts:
+                    try:
+                        dt = _dt.fromisoformat(ts)
+                        time_str = f"({dt.strftime('%H:%M')}) "
+                    except (ValueError, TypeError):
+                        pass
+                for idx, msg in enumerate(msgs[start:last_assistant_idx + 1]):
+                    role = "用户" if msg.get("role") == "user" else "夸夸"
+                    content = str(msg.get("content") or "")[:80]
+                    prefix = time_str if idx == 0 else ""
+                    msg_list.append(f"{prefix}{role}：{content}")
             if msg_list:
                 parts.append(f"- 最近对话：{' | '.join(msg_list)}")
         

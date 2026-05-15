@@ -188,12 +188,12 @@ class MemoryService:
             limit: 返回数量限制
 
         Returns:
-            list[Message]: 消息列表（按时间正序）
+            list[Message]: 消息列表（按时间倒序，最新在前）
         """
         stmt = (
             select(Message)
             .where(Message.session_id == session_id)
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.desc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
