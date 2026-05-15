@@ -222,20 +222,51 @@ uv pip install -r requirements.txt \
 
 ### 环境变量
 
-部署时配置了以下环境变量：
+部署时配置了以下环境变量（分组模型配置，双下划线 `__` 表示嵌套）：
 
-| 变量名 | 值 |
-|--------|------|
-| `MODELSCOPE_API_KEY` | 魔搭社区 API Key |
-| `AI_BASE_URL` | `https://api-inference.modelscope.cn/v1` |
-| `AI_MODEL` | `deepseek-ai/DeepSeek-V3.2` |
-| `AI_VISION_MODEL` | `Qwen/Qwen2.5-VL-72B-Instruct` |
-| `DATABASE_URL` | `sqlite:///./kuakua.db` |
-| `USE_CLOUDBASE` | `true` |
-| `CLOUDBASE_ENV_ID` | `dev-kuakua-d1gmvqyrha28477fe` |
-| `SUPERMEMORY_URL` | `http://106.55.151.27/sse` |
-| `SUPERMEMORY_ENABLED` | `true` |
-| `ENVIRONMENT` | `production` |
+**AI 模型配置**
+
+| 变量名 | 值 | 说明 |
+|--------|------|------|
+| `AI_CHAT__API_KEY` | DeepSeek API Key | 对话模型密钥 |
+| `AI_CHAT__BASE_URL` | `https://api.deepseek.com/v1` | 对话模型地址 |
+| `AI_CHAT__MODEL` | `deepseek-v4-flash` | 对话模型 |
+| `AI_CHAT__TIMEOUT` | `30` | 对话超时(秒) |
+| `AI_VISION__API_KEY` | SiliconFlow API Key | 视觉模型密钥 |
+| `AI_VISION__BASE_URL` | `https://api.siliconflow.cn/v1` | 视觉模型地址 |
+| `AI_VISION__MODEL` | `Qwen/Qwen3-VL-8B-Instruct` | 视觉模型 |
+| `AI_VISION__TIMEOUT` | `60` | 视觉超时(秒) |
+| `AI_EXTRACT__API_KEY` | DeepSeek API Key | 提取模型密钥 |
+| `AI_EXTRACT__BASE_URL` | `https://api.deepseek.com/v1` | 提取模型地址 |
+| `AI_EXTRACT__MODEL` | `deepseek-v4-flash` | 提取模型 |
+| `AI_EXTRACT__TIMEOUT` | `15` | 提取超时(秒) |
+| `AI_EXTRACT_ENABLED` | `true` | 启用 AI 提取 |
+| `AI_EXTRACT_KEYWORD_FALLBACK` | `true` | 提取失败回退关键词 |
+| `AI_EXTRACT_TEMPERATURE` | `0.1` | 提取温度 |
+| `AI_EXTRACT_MAX_TOKENS` | `200` | 提取最大 token |
+
+**SuperMemory 记忆配置**
+
+| 变量名 | 值 | 说明 |
+|--------|------|------|
+| `SUPERMEMORY_URL` | `http://106.55.151.27/sse` | SuperMemory 服务地址 |
+| `SUPERMEMORY_TOKEN` | `kuakua-agent` | SuperMemory 访问令牌 |
+| `SUPERMEMORY_ENABLED` | `true` | 启用记忆功能 |
+| `SUPERMEMORY_TIMEOUT` | `15.0` | 超时(秒) |
+| `SUPERMEMORY_TOP_K` | `3` | 检索条数 |
+
+**基础配置**
+
+| 变量名 | 值 | 说明 |
+|--------|------|------|
+| `DATABASE_URL` | `sqlite:///./kuakua.db` | 数据库连接 |
+| `APP_HOST` | `0.0.0.0` | 监听地址 |
+| `APP_PORT` | `8080` | 监听端口 |
+| `LOG_LEVEL` | `INFO` | 日志级别 |
+| `ADMIN_API_KEY` | (自定义) | 管理后台认证密钥 |
+| `ENVIRONMENT` | `production` | 运行环境 |
+| `USE_CLOUDBASE` | `true` | 启用 CloudBase |
+| `CLOUDBASE_ENV_ID` | `dev-kuakua-d1gmvqyrha28477fe` | CloudBase 环境 ID |
 
 ### 一键部署
 
@@ -254,7 +285,53 @@ bash scripts/deploy-cloudbase.sh --watch     # macOS/Linux
 .\scripts\deploy-cloudbase.ps1 -Watch        # Windows
 ```
 
+脚本会自动从 `.env` 读取所有环境变量（含双下划线嵌套格式），无需手动修改。
+
 > 前置条件：安装 CloudBase CLI (`npm i -g @cloudbase/cli`) 并登录 (`tcb login`)
+
+### 日志查看
+
+**方式一：CloudBase 控制台（推荐）**
+
+控制台自动收集 stdout 日志，支持按时间、关键词搜索：
+
+- 云托管日志: `https://tcb.cloud.tencent.com/dev?envId=dev-kuakua-d1gmvqyrha28477fe#/platform-run`
+- 点击「kuakua-api」服务 → 「日志」标签页
+
+**方式二：日志查询 API**
+
+通过管理后台接口查询服务日志，需要 `X-Admin-Key` 认证：
+
+```bash
+# 查询最近 200 行日志
+curl -H "X-Admin-Key: <你的ADMIN_API_KEY>" \
+  "https://kuakua-api-257074-7-1308646910.sh.run.tcloudbase.com/api/admin/logs"
+
+# 按关键词搜索
+curl -H "X-Admin-Key: <你的ADMIN_API_KEY>" \
+  ".../api/admin/logs?keyword=请求开始"
+
+# 按级别过滤
+curl -H "X-Admin-Key: <你的ADMIN_API_KEY>" \
+  ".../api/admin/logs?level=ERROR"
+
+# 按 trace_id 追踪
+curl -H "X-Admin-Key: <你的ADMIN_API_KEY>" \
+  ".../api/admin/logs?trace_id=abc12345"
+
+# 分页查询
+curl -H "X-Admin-Key: <你的ADMIN_API_KEY>" \
+  ".../api/admin/logs?tail=500&page=2&page_size=20"
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `keyword` | string | - | 关键词搜索（不区分大小写） |
+| `level` | string | - | 日志级别：DEBUG / INFO / WARNING / ERROR / CRITICAL |
+| `trace_id` | string | - | 按 trace_id 过滤 |
+| `tail` | int | 200 | 读取最后 N 行（1-2000） |
+| `page` | int | 1 | 页码 |
+| `page_size` | int | 50 | 每页条数 |
 
 ### 控制台
 

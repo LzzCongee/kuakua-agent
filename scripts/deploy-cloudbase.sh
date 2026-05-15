@@ -41,6 +41,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
@@ -65,42 +66,69 @@ if [ ! -f "$PROJECT_DIR/Dockerfile" ]; then
 fi
 
 # 检查 .env 文件
-if [ ! -f "$PROJECT_DIR/.env" ]; then
-    warn "未找到 .env 文件，将使用默认配置"
+ENV_FILE="$PROJECT_DIR/.env"
+if [ ! -f "$ENV_FILE" ]; then
+    error "未找到 .env 文件: $ENV_FILE，请先从 .env.example 创建"
 fi
 
 # ==================== 构建环境变量 ====================
 
-# 从 .env 文件读取环境变量（排除注释和空行）
 build_env_params() {
+    # 使用 jq 如果可用，否则用 python
     local env_file="$PROJECT_DIR/.env"
-    local params="{"
+    local tmp_json="/tmp/cloudbase-env-$$.json"
 
-    if [ -f "$env_file" ]; then
-        local first=true
-        while IFS='=' read -r key value; do
-            # 跳过注释和空行
-            [[ "$key" =~ ^#.*$ ]] && continue
-            [[ -z "$key" ]] && continue
-            # 去除前后空格
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
+    # 1. 从 .env 文件读取
+    echo "{" > "$tmp_json"
+    local first=true
+    while IFS='=' read -r key value; do
+        # 跳过注释和空行
+        [[ "$key" =~ ^#.*$ ]] && continue
+        [[ -z "$key" ]] && continue
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
 
-            if [ "$first" = true ]; then
-                first=false
-            else
-                params+=","
-            fi
-            params+="\"$key\":\"$value\""
-        done < "$env_file"
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo "," >> "$tmp_json"
+        fi
+        printf '  "%s": "%s"' "$key" "$value" >> "$tmp_json"
+    done < "$env_file"
+
+    # 2. 生产环境覆盖
+    cat >> "$tmp_json" <<'OVERRIDES'
+,
+  "APP_PORT": "8080",
+  "APP_HOST": "0.0.0.0",
+  "ENVIRONMENT": "production",
+  "LOG_LEVEL": "INFO",
+  "USE_CLOUDBASE": "true",
+  "CLOUDBASE_ENV_ID": "__ENV_ID__"
+OVERRIDES
+
+    echo "" >> "$tmp_json"
+    echo "}" >> "$tmp_json"
+
+    # 替换环境 ID 占位符
+    sed -i.bak "s/__ENV_ID__/$ENV_ID/g" "$tmp_json" && rm -f "${tmp_json}.bak"
+
+    # 用 python 验证 JSON 并压缩
+    if command -v python3 &> /dev/null; then
+        python3 -c "import json,sys; d=json.load(open('$tmp_json')); json.dump(d,sys.stdout,separators=(',',':'))" 2>/dev/null
+    elif command -v python &> /dev/null; then
+        python -c "import json,sys; d=json.load(open('$tmp_json')); json.dump(d,sys.stdout,separators=(',',':'))" 2>/dev/null
+    else
+        # 没有 python，直接输出（可能格式不完美）
+        cat "$tmp_json" | tr -d '\n' | sed 's/  //g'
     fi
 
-    params+="}"
-    echo "$params"
+    rm -f "$tmp_json"
 }
 
 ENV_PARAMS=$(build_env_params)
 info "环境变量已从 .env 加载"
+info "生产环境覆盖: APP_PORT=8080, ENVIRONMENT=production, LOG_LEVEL=INFO"
 
 # ==================== 部署 ====================
 

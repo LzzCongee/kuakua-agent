@@ -3,7 +3,8 @@
     CloudBase 云托管一键部署脚本 (PowerShell)
 
 .DESCRIPTION
-    将 kuakua-agent 部署到腾讯云 CloudBase 云托管服务
+    将 kuakua-agent 部署到腾讯云 CloudBase 云托管服务。
+    自动从 .env 文件读取环境变量，并追加生产环境覆盖配置。
 
 .EXAMPLE
     .\scripts\deploy-cloudbase.ps1
@@ -57,17 +58,19 @@ if (-not (Test-Path "$ProjectDir\Dockerfile")) {
 # 检查 .env
 $envFile = "$ProjectDir\.env"
 if (-not (Test-Path $envFile)) {
-    Write-Warn "未找到 .env 文件，将使用默认配置"
+    Write-Err "未找到 .env 文件: $envFile，请先从 .env.example 创建"
 }
 
 # ==================== 构建环境变量 ====================
 
 function Build-EnvParams {
-    $params = @{}
+    # 1. 从 .env 文件读取所有键值对
+    $params = [ordered]@{}
 
     if (Test-Path $envFile) {
         Get-Content $envFile | ForEach-Object {
             $line = $_.Trim()
+            # 跳过注释和空行
             if ($line -and -not $line.StartsWith("#")) {
                 $parts = $line -split "=", 2
                 if ($parts.Length -eq 2) {
@@ -79,11 +82,38 @@ function Build-EnvParams {
         }
     }
 
-    return $params | ConvertTo-Json -Compress
+    # 2. 生产环境覆盖（CloudBase 特有配置）
+    $params["APP_PORT"] = "8080"          # CloudBase 容器端口
+    $params["APP_HOST"] = "0.0.0.0"       # 监听所有地址
+    $params["ENVIRONMENT"] = "production"
+    $params["LOG_LEVEL"] = "INFO"         # 生产环境用 INFO
+    $params["USE_CLOUDBASE"] = "true"
+    $params["CLOUDBASE_ENV_ID"] = $EnvId
+
+    return $params
 }
 
-$EnvParams = Build-EnvParams
-Write-Info "环境变量已从 .env 加载"
+$envMap = Build-EnvParams
+$EnvParams = $envMap | ConvertTo-Json -Compress
+
+Write-Info "环境变量已从 .env 加载（共 $($envMap.Count) 项）"
+Write-Info "生产环境覆盖: APP_PORT=8080, ENVIRONMENT=production, LOG_LEVEL=INFO"
+
+# 打印关键配置（隐藏敏感值）
+Write-Host ""
+Write-Host "--- 环境变量清单 ---" -ForegroundColor Cyan
+foreach ($key in $envMap.Keys) {
+    $value = $envMap[$key]
+    # 隐藏 API Key 等敏感值
+    if ($key -match "API_KEY|SECRET|PASSWORD|TOKEN|ADMIN") {
+        $display = "$($value.Substring(0, [Math]::Min(8, $value.Length)))..."
+    } else {
+        $display = $value
+    }
+    Write-Host ("  {0,-35} {1}" -f $key, $display) -ForegroundColor Gray
+}
+Write-Host "-------------------" -ForegroundColor Cyan
+Write-Host ""
 
 # ==================== 部署 ====================
 
