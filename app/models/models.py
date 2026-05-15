@@ -17,7 +17,7 @@ from ..models.database import Base
 
 def _utc_now() -> datetime:
     """返回带时区信息的 UTC 时间"""
-    return datetime.now(datetime.utc)
+    return datetime.now(timezone.utc)
 
 
 class Favorite(Base):

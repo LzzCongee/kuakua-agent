@@ -479,12 +479,13 @@ class MemoryService:
 
     # ==================== supermemory 语义记忆 ====================
 
-    async def _get_semantic_memories(self, user_id: str) -> list[str]:
+    async def _get_semantic_memories(self, user_id: str, current_query: str = "") -> list[str]:
         """
-        基于用户画像构建查询，通过 MCP 调用 search_memory
+        基于用户画像 + 当前查询构建语义搜索，通过 MCP 调用 search_memory
 
         Args:
             user_id: 用户ID
+            current_query: 用户当前输入的文本（用于语义匹配）
 
         Returns:
             List[str]: 语义相关记忆列表
@@ -494,8 +495,10 @@ class MemoryService:
             logger.debug("语义记忆查询跳过 | 无用户偏好")
             return []
 
-        # 构建语义查询：结合用户标签 + 偏好场景 + 最近情绪
+        # 构建语义查询：当前用户输入优先，结合画像元数据补充
         query_parts: list[str] = []
+        if current_query and current_query.strip():
+            query_parts.append(current_query.strip())
         if profile.user_tags:
             try:
                 tags = json.loads(profile.user_tags)
@@ -571,7 +574,7 @@ class MemoryService:
 
     # ==================== 记忆汇总（用于 Prompt 注入）====================
 
-    async def get_memory_summary(self, user_id: str, session_id: str | None = None) -> MemorySummary:
+    async def get_memory_summary(self, user_id: str, session_id: str | None = None, current_query: str = "") -> MemorySummary:
         """
         获取用户记忆汇总（用于注入到 Prompt）
         
@@ -616,8 +619,11 @@ class MemoryService:
         if session_id:
             recent_messages = await self.get_recent_messages(session_id, limit=10)
             logger.debug(f"记忆汇总: 会话 | session_id={session_id} | messages_count={len(recent_messages)}")
-            for i, msg in enumerate(recent_messages[-3:]):
-                logger.debug(f"记忆汇总: 最近消息[{i}] | role={msg.get('role')} | content={str(msg.get('content', ''))[:80]}")
+            if recent_messages:
+                for i, msg in enumerate(recent_messages[-3:]):
+                    logger.debug(f"记忆汇总: 最近消息[{i}] | role={msg.get('role')} | content={str(msg.get('content', ''))[:80]}")
+            else:
+                logger.info(f"记忆汇总: 当前 session 无历史消息（可能是新会话或首条消息）| session_id={session_id}")
         else:
             logger.debug("记忆汇总: 无 session_id，跳过会话消息")
 
@@ -626,8 +632,8 @@ class MemoryService:
         milestone_contents = [m.content for m in milestones]
         logger.debug(f"记忆汇总: 里程碑 | count={len(milestone_contents)}")
 
-        # 获取语义记忆（supermemory）
-        semantic_memories = await self._get_semantic_memories(user_id)
+        # 获取语义记忆（supermemory）- 带入当前用户查询做语义匹配
+        semantic_memories = await self._get_semantic_memories(user_id, current_query)
         logger.info(f"记忆汇总完成 | user_id={user_id} | prefer_scene={prefer_scene} | tags={len(user_tags)} | milestones={len(milestone_contents)} | semantic={len(semantic_memories)}")
         
         return MemorySummary(

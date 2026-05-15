@@ -154,7 +154,7 @@ async def chat(
     logger.debug(f"AB测试结果 | user_id={user_id} | has_override={prompt_override is not None}")
 
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session)
+    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "")
     if memory_summary:
         logger.debug(f"记忆注入详情 | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -277,7 +277,7 @@ async def chat_stream(
     logger.debug(f"AB测试结果(流式) | user_id={user_id} | has_override={prompt_override is not None}")
 
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session)
+    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "")
     if memory_summary:
         logger.debug(f"记忆注入详情(流式) | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -445,22 +445,23 @@ async def _try_get_db_prompt(
 
 
 async def _get_user_memory(
-    user_id: str, session_id: str, session: AsyncSession
+    user_id: str, session_id: str, session: AsyncSession, current_query: str = ""
 ) -> MemorySummary | None:
     """
     获取用户记忆汇总
-    
+
     Args:
         user_id: 用户ID
         session_id: 会话ID（用于获取短期会话上下文）
         session: 数据库会话
-        
+        current_query: 用户当前输入文本（用于 MCP 语义搜索）
+
     Returns:
         MemorySummary 或 None（如果获取失败）
     """
     try:
         memory_service = MemoryService(session, mcp_client)
-        summary = await memory_service.get_memory_summary(user_id, session_id or None)
+        summary = await memory_service.get_memory_summary(user_id, session_id or None, current_query)
         if summary:
             logger.info(
                 f"记忆汇总结果 | user_id={user_id} | session_id={session_id} | "
