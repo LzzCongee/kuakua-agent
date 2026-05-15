@@ -101,15 +101,10 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 def get_chat_service() -> ChatService:
     """获取 ChatService 实例（依赖注入工厂函数）"""
     settings = get_settings()
-    provider = OpenAICompatibleProvider(
-        api_key=settings.modelscope_api_key,
-        base_url=settings.ai_base_url,
-        model=settings.ai_model,
-        timeout=settings.ai_timeout,
-    )
+    provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
     return ChatService(
         provider=provider,
-        vision_model=settings.ai_vision_model
+        vision_config=settings.ai_vision
     )
 
 
@@ -324,7 +319,7 @@ async def chat_stream(
         )
 
     # 多模态请求的超时秒数（视觉模型较慢，给更多时间）
-    multimodal_timeout = max(settings.ai_timeout, 60.0)
+    multimodal_timeout = max(settings.ai_vision.timeout, 60.0)
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         try:
@@ -370,7 +365,7 @@ async def chat_stream(
                     }
 
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
-            logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200]}")
+            logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200] if full_content else ''}")
 
             response = ChatResponse(content=full_content, scene=request.scene, has_image=has_image, image_desc=image_desc)
 
@@ -554,13 +549,7 @@ async def _update_session_after_chat(
             extraction_result = None
             if request.text:
                 logger.debug(f"开始混合记忆提取 | user_id={user_id} | text={request.text[:100]}")
-                settings = get_settings()
-                provider = OpenAICompatibleProvider(
-                    api_key=settings.modelscope_api_key,
-                    base_url=settings.ai_base_url,
-                    model=settings.ai_extract_model,
-                )
-                extractor = MemoryExtractor.from_settings(provider)
+                extractor = MemoryExtractor.from_settings()
                 extraction_result = await extractor.extract(
                     user_message=request.text,
                     ai_response=response.content,
@@ -690,13 +679,7 @@ async def _update_session_after_chat_with_debug(
             # 记忆提取
             extraction_result = None
             if request.text:
-                settings = get_settings()
-                provider = OpenAICompatibleProvider(
-                    api_key=settings.modelscope_api_key,
-                    base_url=settings.ai_base_url,
-                    model=settings.ai_extract_model,
-                )
-                extractor = MemoryExtractor.from_settings(provider)
+                extractor = MemoryExtractor.from_settings()
                 extraction_result = await extractor.extract(
                     user_message=request.text,
                     ai_response=response.content,

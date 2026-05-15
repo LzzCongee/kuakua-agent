@@ -126,8 +126,11 @@ class MemoryExtractor:
 
     @classmethod
     def from_settings(cls, provider: BaseAIProvider | None = None) -> MemoryExtractor:
-        """从全局配置创建实例"""
+        """从全局配置创建实例，provider 为 None 时自动使用 settings.ai_extract 构造"""
         settings = get_settings()
+        if provider is None:
+            from ..providers.openai_compatible import OpenAICompatibleProvider
+            provider = OpenAICompatibleProvider.from_config(settings.ai_extract)
         return cls(
             provider=provider,
             enabled=settings.ai_extract_enabled,

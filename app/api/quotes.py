@@ -47,11 +47,7 @@ def get_quote_service() -> QuoteService:
         QuoteService: 配置好的夸夸生成服务实例
     """
     settings = get_settings()
-    provider = OpenAICompatibleProvider(
-        api_key=settings.modelscope_api_key,
-        base_url=settings.ai_base_url,
-        model=settings.ai_model
-    )
+    provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
     return QuoteService(provider)
 
 

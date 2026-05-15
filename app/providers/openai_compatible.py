@@ -9,12 +9,15 @@ OpenAI 兼容 AI Provider 实现
 - 任何 OpenAI 兼容的第三方服务
 """
 
-from typing import AsyncGenerator, Optional  # noqa: UP035
+from typing import TYPE_CHECKING, AsyncGenerator, Optional  # noqa: UP035
 
 import httpx
 from openai import APIError, AsyncOpenAI, AuthenticationError, RateLimitError
 
 from .base import AIProviderException, BaseAIProvider
+
+if TYPE_CHECKING:
+    from ..config import ModelConfig
 
 
 class OpenAICompatibleProvider(BaseAIProvider):
@@ -44,7 +47,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
     """
 
     # 默认模型
-    DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.2"
+    DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
 
     # 默认超时配置（秒）
     DEFAULT_TIMEOUT = 30.0
@@ -66,6 +69,16 @@ class OpenAICompatibleProvider(BaseAIProvider):
             api_key=api_key,
             base_url=base_url,
             timeout=httpx.Timeout(timeout, connect=10.0),
+        )
+
+    @classmethod
+    def from_config(cls, config: "ModelConfig") -> "OpenAICompatibleProvider":
+        """从 ModelConfig 配置对象构造 Provider 实例"""
+        return cls(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            model=config.model,
+            timeout=config.timeout,
         )
 
     async def generate(

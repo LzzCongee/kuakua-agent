@@ -142,11 +142,7 @@ async def test_prompt(
 
     # 调用 AI 生成
     settings = get_settings()
-    provider = OpenAICompatibleProvider(
-        api_key=settings.modelscope_api_key,
-        base_url=settings.ai_base_url,
-        model=settings.ai_model,
-    )
+    provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
     output = await provider.generate(
         prompt=data.test_input,
         system_prompt=prompt_resp.system_prompt,

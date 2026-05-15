@@ -10,125 +10,111 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ModelConfig(BaseModel):
+    """单个模型调用场景的配置（API Key / 接口地址 / 模型名 / 超时）"""
+
+    api_key: str = Field(
+        default="CHANGE_ME_IN_PRODUCTION",
+        description="API Key",
+    )
+    base_url: str = Field(
+        default="https://api.siliconflow.cn/v1",
+        description="OpenAI 兼容接口地址",
+    )
+    model: str = Field(
+        default="deepseek-ai/DeepSeek-V4-Flash",
+        description="模型名称",
+    )
+    timeout: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=120.0,
+        description="调用超时秒数",
+    )
 
 
 class Settings(BaseSettings):
     """
     应用配置类
     优先从环境变量读取，其次从 .env 文件读取
-    
+
     配置项可通过以下方式设置（优先级从高到低）：
     1. 环境变量
     2. .env 文件
     3. 默认值
+
+    模型配置按任务分组（ai_chat / ai_vision / ai_extract），
+    每组独立拥有 api_key、base_url、model、timeout，
+    环境变量使用双下划线嵌套：AI_CHAT__API_KEY、AI_VISION__MODEL 等。
     """
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"  # 忽略未定义的配置项
+        extra="ignore",
+        env_nested_delimiter="__",
     )
 
     # ==================== 应用基础配置 ====================
-    
-    # 服务名称（用于日志、服务发现）
+
     service_name: str = Field(default="kuakua-agent", description="服务名称")
-    
-    # 环境（development/staging/production）
     environment: str = Field(default="development", description="运行环境")
 
     # ==================== 日志配置 ====================
-    
-    # 日志级别（DEBUG/INFO/WARNING/ERROR/CRITICAL）
-    log_level: str = Field(
-        default="INFO",
-        description="日志级别"
-    )
-    
-    # 日志文件目录（相对于项目根目录）
-    log_dir: str = Field(
-        default="logs",
-        description="日志文件目录"
-    )
-    
-    # 日志文件名前缀
-    log_filename: str = Field(
-        default="kuakua-agent",
-        description="日志文件名前缀"
-    )
-    
-    # 是否启用日志文件输出
-    log_file_enabled: bool = Field(
-        default=True,
-        description="是否启用日志文件输出"
-    )
-    
-    # 日志文件保留天数
-    log_backup_count: int = Field(
-        default=30,
-        description="日志文件保留天数"
-    )
-    
-    # 是否在控制台输出日志
-    log_console_enabled: bool = Field(
-        default=True,
-        description="是否在控制台输出日志"
+
+    log_level: str = Field(default="INFO", description="日志级别")
+    log_dir: str = Field(default="logs", description="日志文件目录")
+    log_filename: str = Field(default="kuakua-agent", description="日志文件名前缀")
+    log_file_enabled: bool = Field(default=True, description="是否启用日志文件输出")
+    log_backup_count: int = Field(default=30, description="日志文件保留天数")
+    log_console_enabled: bool = Field(default=True, description="是否在控制台输出日志")
+
+    # ==================== 模型配置（分组） ====================
+
+    # 聊天文本生成
+    ai_chat: ModelConfig = Field(
+        default_factory=ModelConfig,
+        description="聊天文本生成模型配置",
     )
 
-    # ==================== API 配置 ====================
-
-    # 魔搭社区 API Key（必填，需要从 https://modelscope.cn/services/api 申请）
-    modelscope_api_key: str = Field(
-        default="CHANGE_ME_IN_PRODUCTION",
-        description="魔搭社区 API Key（生产环境必须修改）"
+    # 视觉多模态
+    ai_vision: ModelConfig = Field(
+        default_factory=lambda: ModelConfig(
+            model="Qwen/Qwen3-VL-8B-Instruct",
+            timeout=60.0,
+        ),
+        description="视觉多模态模型配置",
     )
 
-    # AI 服务基础 URL，默认为魔搭社区 OpenAI 兼容接口
-    ai_base_url: str = Field(
-        default="https://api-inference.modelscope.cn/v1",
-        description="AI 服务基础 URL"
+    # 记忆提取
+    ai_extract: ModelConfig = Field(
+        default_factory=lambda: ModelConfig(
+            model="deepseek-ai/DeepSeek-V4-Flash",
+            timeout=15.0,
+        ),
+        description="记忆提取模型配置",
     )
 
-    # AI 模型名称，默认为魔搭社区 DeepSeek-R1-Distill-Qwen-7B 模型
-    ai_model: str = Field(default="deepseek-ai/DeepSeek-V3.2", description="AI 模型名称")
+    # ==================== AI 记忆提取控制参数 ====================
 
-    # AI 视觉模型名称，用于处理图片等视觉任务
-    ai_vision_model: str = Field(default="Qwen/Qwen3-VL-8B-Instruct", description="AI 视觉模型名称")
-
-    # AI 调用超时（秒），文本和视觉模型共用
-    ai_timeout: float = Field(default=30.0, ge=5.0, le=120.0, description="AI 调用超时秒数")
-
-    # ==================== AI 记忆提取配置 ====================
-
-    # 提取用模型名称（可以和生成模型相同，也可以用更便宜的模型）
-    ai_extract_model: str = Field(
-        default="deepseek-ai/DeepSeek-V3.2",
-        description="记忆提取用模型名称"
-    )
-
-    # 是否启用 AI 提取（false 时回退到纯关键词匹配）
     ai_extract_enabled: bool = Field(
         default=True,
-        description="是否启用 AI 记忆提取"
+        description="是否启用 AI 记忆提取",
     )
-
-    # 是否启用关键词兜底层（false 时纯 LLM 提取）
     ai_extract_keyword_fallback: bool = Field(
         default=True,
-        description="是否启用关键词兜底提取"
+        description="是否启用关键词兜底提取",
     )
-
-    # 提取 LLM 的 temperature（越低越确定性）
     ai_extract_temperature: float = Field(
         default=0.1,
-        description="提取 LLM 的 temperature"
+        description="提取 LLM 的 temperature",
     )
-
-    # 提取 LLM 的 max_tokens
     ai_extract_max_tokens: int = Field(
         default=200,
-        description="提取 LLM 的 max_tokens"
+        description="提取 LLM 的 max_tokens",
     )
 
     # ==================== 数据库配置 ====================

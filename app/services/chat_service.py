@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal
 
+from ..config import ModelConfig
 from ..core.logging import get_logger
 from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
 from ..prompts.templates import get_chat_prompt
@@ -39,25 +40,25 @@ class ChatService:
     
     # 类属性类型注解
     provider: BaseAIProvider
-    vision_model: str
+    _vision_config: ModelConfig
     memory_service: MemoryService | None
-    
+
     def __init__(
-        self, 
-        provider: BaseAIProvider, 
-        vision_model: str,
+        self,
+        provider: BaseAIProvider,
+        vision_config: ModelConfig,
         memory_service: MemoryService | None = None
     ):
         """
         初始化 ChatService
-        
+
         Args:
             provider: AI Provider 实例
-            vision_model: 视觉模型名称，用于处理图片输入
+            vision_config: 视觉模型配置（包含 model、api_key 等）
             memory_service: 可选的 MemoryService 实例
         """
         self.provider = provider
-        self.vision_model = vision_model
+        self._vision_config = vision_config
         self.memory_service = memory_service
     
     async def chat(
@@ -273,10 +274,10 @@ class ChatService:
         })
 
         # 调用多模态生成
-        logger.debug(f"调用 provider.generate_multimodal | messages_count={len(messages)} | 模型={self.vision_model}")
+        logger.debug(f"调用 provider.generate_multimodal | messages_count={len(messages)} | 模型={self._vision_config.model}")
         raw = await self.provider.generate_multimodal(
             messages=messages,
-            model=self.vision_model
+            model=self._vision_config.model
         )
 
         # 解析 JSON 响应，提取夸赞文案和图片描述
