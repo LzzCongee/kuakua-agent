@@ -529,7 +529,7 @@ class MemoryService:
             logger.debug("语义记忆查询无结果 | MCP 返回 null（降级/失败）")
             return []
 
-        memories = [item.get("content", "") for item in result.get("results", [])]
+        memories = [item.get("memory", "") or item.get("content", "") for item in result.get("results", [])]
         logger.debug(f"语义记忆查询完成 | count={len(memories)} | raw_result_keys={list(result.keys())}")
         for i, mem in enumerate(memories):
             logger.debug(f"语义记忆[{i}] | content={mem[:100]}")

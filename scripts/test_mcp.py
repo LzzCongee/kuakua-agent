@@ -349,7 +349,7 @@ async def test_tool_call(url: str, token: str, timeout: float) -> bool:
                         count = len(data.get("results", []))
                         print_ok("search_memory", f"返回 {count} 条结果")
                         for i, item in enumerate(data.get("results", [])[:3]):
-                            print_info(f"  [{i}]", f"{item.get('content', '')[:80]}")
+                            print_info(f"  [{i}]", f"{item.get('memory', '') or item.get('content', '')[:80]}")
                     else:
                         print_info("search_memory", "无返回内容")
                 except asyncio.TimeoutError:
