@@ -138,6 +138,17 @@ class Settings(BaseSettings):
         description="管理后台 API Key，用于 X-Admin-Key header 认证（生产环境必须修改）"
     )
 
+    # ==================== 微信小程序配置 ====================
+
+    wechat_app_id: str = Field(
+        default="",
+        description="微信小程序 AppID（wx开头）",
+    )
+    wechat_app_secret: str = Field(
+        default="",
+        description="微信小程序 AppSecret",
+    )
+
     # ==================== supermemory MCP 配置 ====================
 
     # supermemory MCP Server SSE 地址

@@ -15,12 +15,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import admin, chat, favorites, memory, quotes
+from .api import admin, auth, chat, favorites, memory, quotes
 from .config import get_settings
 from .core.exceptions import register_exception_handlers
-from .core.logging import register_logging_middleware, get_logger
+from .core.logging import get_logger, register_logging_middleware
 from .core.mcp_client import mcp_client
-from .models.database import init_db, close_db
+from .models.database import close_db, init_db
 
 
 @asynccontextmanager
@@ -64,6 +64,9 @@ app = FastAPI(
         "| `X-User-ID` | 用户标识，用于数据隔离和个性化服务 | 业务接口必填，未提供时默认 `anonymous` |\n"
         "| `X-Admin-Key` | 管理后台 API Key | 管理接口必填 |\n"
         "| `X-Trace-ID` | 请求追踪 ID，用于日志关联 | 可选 |\n\n"
+        "### 登录方式\n\n"
+        "小程序端调用 `wx.login()` 获取 `code`，请求 `POST /api/auth/login` 换取 `openid`，\n"
+        "将返回的 `openid` 作为 `X-User-ID` 请求头发送后续请求。\n\n"
         "### 通用响应格式\n\n"
         "所有接口统一返回 `ApiResponse` 包装：\n\n"
         '```json\n'
@@ -107,6 +110,7 @@ register_logging_middleware(app)
 register_exception_handlers(app)
 
 # 挂载路由
+app.include_router(auth.router)
 app.include_router(quotes.router)
 app.include_router(favorites.router)
 app.include_router(chat.router)
