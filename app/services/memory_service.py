@@ -247,26 +247,27 @@ class MemoryService:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_recent_sessions(self, user_id: str, limit: int = 5) -> list[Session]:
+    async def get_recent_sessions(
+        self, user_id: str, limit: int = 5, session_id: str | None = None
+    ) -> list[Session]:
         """
         获取用户最近的会话记录
 
         Args:
             user_id: 用户ID
             limit: 返回数量限制
+            session_id: 可选，指定时只返回该会话
 
         Returns:
             list[Session]: 会话列表（按最后消息时间倒序）
         """
-        stmt = (
-            select(Session)
-            .where(Session.user_id == user_id)
-            .order_by(Session.last_message_at.desc().nullslast(), Session.updated_at.desc())
-            .limit(limit)
-        )
+        stmt = select(Session).where(Session.user_id == user_id)
+        if session_id:
+            stmt = stmt.where(Session.session_id == session_id)
+        stmt = stmt.order_by(Session.last_message_at.desc().nullslast(), Session.updated_at.desc()).limit(limit)
         result = await self.session.execute(stmt)
         sessions = list(result.scalars().all())
-        logger.debug(f"查询用户会话列表 | user_id={user_id} | limit={limit} | count={len(sessions)}")
+        logger.debug(f"查询用户会话列表 | user_id={user_id} | session_id={session_id} | limit={limit} | count={len(sessions)}")
         return sessions
 
     async def cleanup_expired_sessions(self, hours: int = 2) -> int:

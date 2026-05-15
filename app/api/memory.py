@@ -211,6 +211,7 @@ async def get_memory_summary(
 async def get_user_sessions(
     service: MemoryServiceDep,
     limit: int = 5,
+    session_id: str | None = None,
     user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[list[SessionResponse]]:
     """
@@ -218,12 +219,13 @@ async def get_user_sessions(
 
     Args:
         limit: 返回数量限制
+        session_id: 可选，指定时只返回该会话
 
     Returns:
         会话列表（message_count 用于前端展示计数，messages 为空）
     """
-    logger.info(f"获取用户会话历史 | user_id={user_id} | limit={limit}")
-    sessions = await service.get_recent_sessions(user_id, limit)
+    logger.info(f"获取用户会话历史 | user_id={user_id} | session_id={session_id} | limit={limit}")
+    sessions = await service.get_recent_sessions(user_id, limit, session_id)
 
     results = [
         SessionResponse(

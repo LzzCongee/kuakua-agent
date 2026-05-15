@@ -153,8 +153,11 @@ async def chat(
     prompt_source = "ab_test" if prompt_override else None
     logger.debug(f"AB测试结果 | user_id={user_id} | has_override={prompt_override is not None}")
 
+    # 调试模式：提前创建 MCPTracker，跟踪整个请求生命周期的 MCP 调用
+    tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
+
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "")
+    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
     if memory_summary:
         logger.debug(f"记忆注入详情 | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -216,7 +219,7 @@ async def chat(
         # 调试模式：同步执行后台任务，捕获 MCP 调用和记忆提取结果
         assert debug_info is not None
         await _update_session_after_chat_with_debug(
-            user_id, session_id, request, response, debug_info
+            user_id, session_id, request, response, debug_info, tracker
         )
         response.debug = debug_info
     else:
@@ -276,8 +279,11 @@ async def chat_stream(
     prompt_source = "ab_test" if prompt_override else None
     logger.debug(f"AB测试结果(流式) | user_id={user_id} | has_override={prompt_override is not None}")
 
+    # 调试模式：提前创建 MCPTracker，跟踪整个请求生命周期的 MCP 调用
+    tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
+
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "")
+    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
     if memory_summary:
         logger.debug(f"记忆注入详情(流式) | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -372,7 +378,7 @@ async def chat_stream(
             if debug and debug_info:
                 # 调试模式：同步执行后台任务，捕获 MCP 调用和记忆提取
                 await _update_session_after_chat_with_debug(
-                    user_id, session_id, request, response, debug_info
+                    user_id, session_id, request, response, debug_info, tracker
                 )
                 yield {
                     "event": "debug",
@@ -445,7 +451,8 @@ async def _try_get_db_prompt(
 
 
 async def _get_user_memory(
-    user_id: str, session_id: str, session: AsyncSession, current_query: str = ""
+    user_id: str, session_id: str, session: AsyncSession,
+    current_query: str = "", mcp: Any = None,
 ) -> MemorySummary | None:
     """
     获取用户记忆汇总
@@ -455,12 +462,13 @@ async def _get_user_memory(
         session_id: 会话ID（用于获取短期会话上下文）
         session: 数据库会话
         current_query: 用户当前输入文本（用于 MCP 语义搜索）
+        mcp: MCP Client 实例（调试模式传入 MCPTracker）
 
     Returns:
         MemorySummary 或 None（如果获取失败）
     """
     try:
-        memory_service = MemoryService(session, mcp_client)
+        memory_service = MemoryService(session, mcp or mcp_client)
         summary = await memory_service.get_memory_summary(user_id, session_id or None, current_query)
         if summary:
             logger.info(
@@ -625,6 +633,7 @@ async def _update_session_after_chat_with_debug(
     request: ChatRequest,
     response: ChatResponse,
     debug_info: ChatDebugInfo,
+    tracker: MCPTracker,
 ) -> None:
     """调试模式下的会话更新：同步执行，捕获 MCP 调用和记忆提取结果"""
     if not session_id:
@@ -637,8 +646,7 @@ async def _update_session_after_chat_with_debug(
         from ..models.database import get_db
 
         async with get_db() as db_session:
-            # 使用 MCPTracker 包装 mcp_client
-            tracker = MCPTracker(mcp_client)
+            # 复用外部传入的 tracker（已包含 search_memory 调用记录）
             memory_service = MemoryService(db_session, tracker)
 
             # 获取或创建会话

@@ -458,8 +458,12 @@
                 </div>
                 <div class="col">
                     <div class="form-group">
-                        <label>会话 ID (Session ID)</label>
-                        <input type="text" id="sessionId" placeholder="留空自动生成">
+                        <label>会话</label>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <select id="sessionSelect" style="flex:1;" onchange="switchSession(this.value)"></select>
+                            <button onclick="newSession()" style="padding:10px 12px;white-space:nowrap;background:#6c757d;">新建</button>
+                        </div>
+                        <input type="hidden" id="sessionId">
                     </div>
                 </div>
                 <div class="col">
@@ -475,7 +479,6 @@
                     </div>
                 </div>
             </div>
-            <button onclick="initSession()">初始化会话</button>
         </div>
         
         <!-- 对话面板 -->
@@ -656,6 +659,11 @@
                             </select>
                         </div>
                     </div>
+                    <div class="col" style="display:flex;align-items:center;gap:8px;">
+                        <label class="debug-toggle">
+                            <input type="checkbox" id="currentSessionOnly" checked> 只看当前会话
+                        </label>
+                    </div>
                 </div>
                 <div class="row">
                     <button onclick="getSessions()">查询会话历史</button>
@@ -754,31 +762,74 @@
         function getUserId() {
             return document.getElementById('userId').value || 'anonymous';
         }
-        
+
         function getSessionId() {
-            let sid = document.getElementById('sessionId').value;
-            if (!sid) {
-                const userId = getUserId();
-                sid = `session_${userId}`;
-                document.getElementById('sessionId').value = sid;
-            }
-            return sid;
+            return document.getElementById('sessionId').value || `session_${getUserId()}`;
         }
-        
+
         function showStatus(elemId, message, type) {
             const el = document.getElementById(elemId);
             el.innerHTML = `<div class="status ${type}">${message}</div>`;
         }
-        
+
         function showError(elemId, error) {
             showStatus(elemId, `错误: ${error}`, 'error');
         }
-        
-        // 初始化会话
+
+        // ========== 会话切换器 ==========
+        async function loadSessionList() {
+            const userId = getUserId();
+            const select = document.getElementById('sessionSelect');
+            const currentSid = document.getElementById('sessionId').value;
+            try {
+                const res = await fetch(`${API_BASE}/api/memory/sessions?limit=20`, {
+                    headers: { 'X-User-ID': userId }
+                });
+                const data = await res.json();
+                let options = '';
+                if (data.code === 0 && data.data && data.data.length) {
+                    data.data.forEach(s => {
+                        const label = `${s.session_id} (${s.message_count || 0}条)`;
+                        const selected = s.session_id === currentSid ? 'selected' : '';
+                        options += `<option value="${s.session_id}" ${selected}>${label}</option>`;
+                    });
+                }
+                // 确保当前 session_id 在列表中
+                if (currentSid && !options.includes(`value="${currentSid}"`)) {
+                    options = `<option value="${currentSid}" selected>${currentSid} (0条)</option>` + options;
+                }
+                select.innerHTML = options || `<option value="${currentSid}">${currentSid}</option>`;
+            } catch (e) {
+                select.innerHTML = `<option value="${currentSid}">${currentSid}</option>`;
+            }
+        }
+
+        function switchSession(sid) {
+            document.getElementById('sessionId').value = sid;
+        }
+
+        function newSession() {
+            const userId = getUserId();
+            const sid = `session_${userId}_${Date.now()}`;
+            document.getElementById('sessionId').value = sid;
+            const select = document.getElementById('sessionSelect');
+            const opt = document.createElement('option');
+            opt.value = sid;
+            opt.textContent = `${sid} (新建)`;
+            opt.selected = true;
+            select.insertBefore(opt, select.firstChild);
+        }
+
+        // userId 变化时刷新会话列表
+        document.getElementById('userId').addEventListener('input', function () {
+            document.getElementById('sessionId').value = `session_${this.value || 'anonymous'}`;
+            loadSessionList();
+        });
+
         function initSession() {
             currentUserId = getUserId();
-            getSessionId();
-            showStatus('profileResult', `会话已初始化 | User: ${currentUserId} | Session: ${document.getElementById('sessionId').value}`, 'info');
+            document.getElementById('sessionId').value = `session_${currentUserId}`;
+            loadSessionList();
         }
         
         // 切换标签页
@@ -1200,8 +1251,12 @@
         async function getSessions() {
             const userId = getUserId();
             const limit = document.getElementById('sessionLimit').value;
+            const currentOnly = document.getElementById('currentSessionOnly').checked;
+            const sessionId = currentOnly ? getSessionId() : null;
             try {
-                const res = await fetch(`${API_BASE}/api/memory/sessions?limit=${limit}`, {
+                let url = `${API_BASE}/api/memory/sessions?limit=${limit}`;
+                if (sessionId) url += `&session_id=${encodeURIComponent(sessionId)}`;
+                const res = await fetch(url, {
                     headers: { 'X-User-ID': userId }
                 });
                 const data = await res.json();
