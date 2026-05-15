@@ -7,7 +7,7 @@ from ..core.logging import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/auth", tags=["登录认证"])
+router = APIRouter(prefix="/api", tags=["登录认证"])
 
 
 class LoginRequest(BaseModel):
