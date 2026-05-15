@@ -63,6 +63,10 @@ nginx/certs/*.pem
 # 但保留 nginx/certs/.gitkeep（占位文件）
 !nginx/certs/.gitkeep
 
+# ==================== CloudBase ====================
+# MCP 部署时自动生成，无需追踪
+cloudbaserc.json
+
 # ==================== Linting / 类型检查 ====================
 .mypy_cache/
 .ruff_cache/

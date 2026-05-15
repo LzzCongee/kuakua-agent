@@ -1,6 +1,0 @@
-{
-  "envId": "dev-kuakua-d1gmvqyrha28477fe",
-  "cloudrun": {
-    "name": "kuakua-api"
-  }
-}

@@ -1,19 +1,22 @@
-# 使用 Python 3.12 官方镜像
-FROM python:3.12-slim
+# === 构建阶段：安装编译依赖 + pip install ===
+FROM python:3.12-slim AS builder
 
-# 设置工作目录
-WORKDIR /app
+WORKDIR /install
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# 安装编译依赖（仅此阶段使用，不进最终镜像）
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
 COPY requirements.txt .
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install/deps -r requirements.txt
+
+# === 运行阶段：只包含运行时文件，体积更小 ===
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# 从构建阶段复制已编译的依赖（无需 gcc，无需重新编译）
+COPY --from=builder /install/deps /usr/local
 
 # 创建非 root 用户
 RUN groupadd --gid 1000 appuser && \

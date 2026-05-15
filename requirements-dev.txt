@@ -1,0 +1,4 @@
+-r requirements.txt
+
+mypy>=1.8.0
+pydantic[mypy]>=2.0
