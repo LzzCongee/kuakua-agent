@@ -8,7 +8,7 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -164,7 +164,7 @@ class Settings(BaseSettings):
     )
 
     # SSE 连接附加请求头（如需额外 header）
-    supermemory_headers: Optional[Dict[str, Any]] = Field(
+    supermemory_headers: Optional[dict[str, Any]] = Field(
         default=None,
         description="SSE 连接附加请求头（优先级高于 supermemory_token）"
     )

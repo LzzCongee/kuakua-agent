@@ -6,7 +6,7 @@ Prompt 管理服务模块
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -85,7 +85,7 @@ class PromptService:
                 existing.input_type = data.input_type
                 existing.version += 1
                 existing.updated_by = data.updated_by
-                existing.updated_at = datetime.now(timezone.utc)
+                existing.updated_at = datetime.now(UTC)
                 await session.flush()
                 return self._to_response(existing)
             else:

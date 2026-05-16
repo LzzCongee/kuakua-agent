@@ -14,8 +14,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -36,7 +37,6 @@ from ..models.schemas import (
     PromptContent,
     UserProfileUpdate,
 )
-import uuid
 from ..prompts.templates import get_chat_prompt
 from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.ab_test_service import ABTestService
@@ -399,7 +399,7 @@ async def chat_stream(
                     {
                         "scene": request.scene,
                         "has_image": has_image,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "created_at": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,
                 ),
@@ -498,7 +498,7 @@ async def _update_session_after_chat(
     用于后续的上下文追踪和记忆提取。
     """
     if not session_id:
-        logger.debug(f"会话持久化跳过 | session_id 为空")
+        logger.debug("会话持久化跳过 | session_id 为空")
         return
 
     # 生成 trace_id 用于追踪本次请求
@@ -512,7 +512,7 @@ async def _update_session_after_chat(
             memory_service = MemoryService(db_session)
 
             # 获取或创建会话
-            session_obj = await memory_service.get_or_create_session(
+            await memory_service.get_or_create_session(
                 user_id=user_id,
                 session_id=session_id
             )
@@ -650,7 +650,7 @@ async def _update_session_after_chat_with_debug(
             memory_service = MemoryService(db_session, tracker)
 
             # 获取或创建会话
-            session_obj = await memory_service.get_or_create_session(
+            await memory_service.get_or_create_session(
                 user_id=user_id,
                 session_id=session_id
             )

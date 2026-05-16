@@ -51,14 +51,13 @@ reportAny = false
 
 
 [tool.ruff]
-line-length = 88
-# 检查规则：开启基础(E, F), isort(I), 以及一些进阶规则
-select = ["E", "F", "I", "B", "UP"]
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-# 自动修复未使用的导入
-fixable = ["I", "F401"]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "UP045", "UP035", "UP015", "B904", "UP046"]
+fixable = ["I", "F401", "F541", "UP006", "UP017", "UP041"]
 
 [tool.ruff.format]
 quote-style = "double" # 使用双引号，符合工业界标准

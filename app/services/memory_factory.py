@@ -5,7 +5,6 @@
 提供统一的接口，方便在两种实现之间切换
 """
 
-from typing import Union
 
 from ..config import get_settings
 from ..models.schemas import MemorySummary
@@ -17,7 +16,7 @@ from ..services.cloudbase_memory import CloudBaseMemoryService
 from ..services.memory_service import MemoryService as SQLMemoryService
 
 # 统一类型别名
-MemoryServiceType = Union[SQLMemoryService, CloudBaseMemoryService]
+MemoryServiceType = SQLMemoryService | CloudBaseMemoryService
 
 
 def get_memory_service(db_session=None) -> MemoryServiceType:
