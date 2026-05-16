@@ -31,7 +31,7 @@ jobs:
         run: mypy app/
         continue-on-error: true
 
-  # 部署到腾讯云轻量服务器（生产环境）
+  # 部署到腾讯云 Lighthouse
   deploy:
     needs: lint
     runs-on: ubuntu-latest
@@ -44,12 +44,12 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/kuakua-login
+            cd /opt/kuakua-agent
 
             # 拉取最新代码
             git pull origin main
 
-            # 重新构建并启动
+            # 重新构建并启动（零停机滚动更新）
             docker compose up -d --build app
 
             # 等待健康检查
