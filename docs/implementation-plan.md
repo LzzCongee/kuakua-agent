@@ -92,46 +92,102 @@
 
 #### Q2: Supermemory `update_memory` 在哪里调用？
 
-**调用时机**：用户偏好发生变化时。
+**原方案问题**：之前说"收藏时调用 update_memory"，但用户主动收藏行为极少（<5%），不能作为主要偏好学习通道。
 
-具体场景：
+**正确方案**：被动无感学习 + 渐进式权重更新。
+
+##### 当前项目的偏好变更机制（已实现）
+
+| 字段 | 变更方式 | 触发时机 | 问题 |
+|------|---------|---------|------|
+| `prefer_scene` | `MemoryExtractor` 提取 `scene_hint` | 每次对话 LLM 提取 | ✅ 已实现 |
+| `user_tags` | `MemoryExtractor` 提取 `tags` | 每次对话 LLM 提取 | ✅ 已实现 |
+| `last_emotion` | `MemoryExtractor` 提取 `emotion` | 每次对话覆盖 | ❌ **问题**：状态被每次覆盖，无法形成偏好 |
+| `avoid_words` | `MemoryExtractor` 提取 `avoid_words` | 每次对话 LLM 提取 | ❌ **问题**：单次信号直接写入，可靠性低 |
+| Supermemory `update_memory` | **从未调用** | - | ❌ **缺失** |
+
+##### 偏好变更触发点（已存在于 chat.py:592-600）
+
+```python
+# app/api/chat.py:592-600 - 每次对话后更新用户画像
+profile_update = UserProfileUpdate(
+    last_emotion=extraction_result.emotion if extraction_result.emotion != "neutral" else None,
+    user_tags=extraction_result.tags if extraction_result.tags else None,
+    prefer_scene=extraction_result.scene_hint,
+)
+if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
+    await memory_service.update_user_profile(user_id, profile_update)
+```
+
+**问题 1：`last_emotion` 是瞬时状态，不是偏好**
+```python
+# 当前实现：每次都覆盖
+profile.last_emotion = data.last_emotion  # 用户说"收到offer开心" → last_emotion=excited
+                                # 下次说"加班好累" → last_emotion=exhausted（覆盖）
+```
+应该改为：记录"情绪历史"数组，统计趋势而非单次状态。
+
+**问题 2：`avoid_words` 无置信度累计**
+```python
+# 当前实现：LLM 提取到一次"避免油腻"就直接写入
+# 但这是单次信号，可能误提取
+```
+应该改为：累积 N 次相同词（置信度积累）再升级为偏好。
+
+##### `update_memory` 调用时机（推荐）
+
+**核心原则**：用户无感知、被动学习、渐进式更新。
 
 | 场景 | 调用位置 | 说明 |
 |------|---------|------|
-| 用户收藏夸夸 | `favorite_service.py` 的 `add` 方法后 | 用户主动认可，偏好更新最可靠 |
-| 用户多次选择同一场景 | `chat.py` 累计场景计数超阈值后 | 行为比口述更可信 |
-| 用户明确表达 avoid_words | `MemoryExtractor` 提取到 `avoid_words` 时 | 显式反馈 |
+| 情绪趋势稳定 | 情绪历史数组更新后 | 当同一情绪连续出现 3+ 次，更新 Supermemory |
+| 场景偏好稳定 | `prefer_scene` 连续命中 3+ 次 | 行为比口述更可信 |
+| 新标签出现 | `user_tags` 累计 5+ 个不同标签 | 标签库渐进丰富 |
+| 避免词确认 | 同一 `avoid_words` 被提取 3+ 次 | 避免误判 |
 
-**推荐优先实现（最小闭环）**：
+##### 具体实现（在 chat.py 完成后触发）
 
 ```python
-# favorite_service.py - 收藏时更新偏好
-async def add(self, user_id: str, content: str, emotion: str):
-    # 原有逻辑...
-    favorite = await self.create(...)
+# app/api/chat.py - 在 _update_session_after_chat 末尾追加
+
+# 情绪趋势判断：连续 3 次相同情绪 → 认为形成偏好
+emotion_history_key = f"emotion_history_{user_id}"
+emotion_history = await redis.lrange(emotion_history_key, 0, -1) or []
+
+current_emotion = extraction_result.emotion if extraction_result else None
+if current_emotion and current_emotion != "neutral":
+    emotion_history.append(current_emotion)
+    # 只保留最近 5 次
+    await redis.ltrim(emotion_history_key, -5, -1)
     
-    # ★ 新增：用户收藏时，更新 Supermemory 偏好记忆
-    if favorite:
-        await self.mcp.call(
+    # 判断是否形成稳定情绪偏好（连续 3 次相同）
+    if len(emotion_history) >= 3 and len(set(emotion_history[-3:])) == 1:
+        stable_emotion = emotion_history[-1]
+        await mcp_client.call(
             "update_memory",
             user_id=user_id,
-            updates={
-                "preferred_emotion_style": emotion,
-                "last_favorite_at": datetime.now().isoformat(),
-            }
+            query=f"用户情绪偏好：{stable_emotion}",  # 搜索已有记忆
+            updates={"emotion_preference": stable_emotion}
         )
-    return favorite
+        logger.info(f"情绪偏好已稳定，更新 Supermemory | emotion={stable_emotion}")
 ```
 
-**不要在每次对话时调用 update_memory**——对话内容变化频繁，频繁更新会导致语义记忆抖动。
+**重要**：不要在每次对话时调用 `update_memory`——对话内容变化频繁，频繁更新会导致语义记忆抖动。
 
 ---
 
 #### Q3: ContextBuilder 做什么？有无类型检查？
 
-**ContextBuilder 职责**：将多层记忆聚合为结构化对象，供 Prompt 调用。替换 `format_memory_for_prompt()` 的字符串拼接。
+**ContextBuilder 职责**：将多层记忆聚合为结构化对象，替代 `format_memory_for_prompt()` 的字符串拼接。
 
-**类型安全设计**：
+**当前项目已有类似逻辑**：
+
+| 现有实现 | 文件:方法 | 说明 |
+|---------|----------|------|
+| `format_memory_for_prompt()` | `memory_service.py:651-689` | 字符串拼接 |
+| `_inject_memory()` | `chat_service.py:146-214` | Prompt 注入 |
+
+**ContextBuilder 的改进点**：
 
 ```python
 # app/services/memory/context_builder.py
@@ -140,7 +196,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 class SemanticMemory(BaseModel):
-    """单条语义记忆"""
+    """单条语义记忆（类型安全）"""
     memory_id: str
     content: str
     timestamp: Optional[str] = None
@@ -148,9 +204,9 @@ class SemanticMemory(BaseModel):
 class MemoryContext(BaseModel):
     """
     记忆上下文（最终注入 Prompt 的结构）
-    
-    使用 Pydantic 校验，确保字段完整性和类型安全，
-    避免字符串拼接遗漏或格式错误。
+
+    替换 format_memory_for_prompt() 的字符串拼接，
+    使用 Pydantic 校验确保字段完整性和类型安全。
     """
     prefer_scene: Optional[str] = Field(default=None, description="偏好场景")
     prefer_style: Optional[str] = Field(default=None, description="喜欢风格")
@@ -160,7 +216,7 @@ class MemoryContext(BaseModel):
     milestones: list[str] = Field(default_factory=list, max_length=3)
     recent_messages: list[dict[str, str]] = Field(default_factory=list)
     semantic_memories: list[SemanticMemory] = Field(default_factory=list)
-    
+
     def to_prompt_string(self) -> str:
         """转换为 Prompt 注入字符串"""
         parts = []
@@ -168,17 +224,34 @@ class MemoryContext(BaseModel):
             parts.append(f"- 偏好场景：{self.prefer_scene}")
         if self.prefer_style:
             parts.append(f"- 喜欢风格：{self.prefer_style}")
-        # ... 其他字段
+        if self.user_tags:
+            parts.append(f"- 用户标签：{', '.join(self.user_tags[:5])}")
+        if self.last_emotion:
+            parts.append(f"- 当前情绪：{self.last_emotion}")
+        if self.milestones:
+            parts.append(f"- 高光时刻：{'; '.join(self.milestones[:3])}")
+        if self.semantic_memories:
+            parts.append(f"- 相关记忆：{'; '.join(m.content for m in self.semantic_memories[:2])}")
         if not parts:
             return ""
         return "【用户个性化信息】\n" + "\n".join(parts)
 ```
 
-**为什么比字符串拼接好**：
-1. **字段完整性**：Pydantic 强制校验，遗漏字段会被 mypy/pyright 检测
-2. **类型校验**：`list[str]` vs `Any`，避免传入 dict 而非 string 的 bug
-3. **可测试**：直接 `assert context.user_tags == ["程序员"]`，无需解析字符串
-4. **可扩展**：新增字段只需在 model 加 Field，不破坏现有调用
+**为什么比现有字符串拼接好**：
+
+| 维度 | 现有 `format_memory_for_prompt()` | `ContextBuilder` |
+|------|----------------------------------|------------------|
+| 类型校验 | ❌ 无，`dict` 直接拼 | ✅ Pydantic 校验 |
+| 可测试性 | ❌ 需解析字符串 | ✅ `assert context.user_tags == ["程序员"]` |
+| 可扩展性 | ❌ 改字符串格式 | ✅ 加 `Field` 即可 |
+| IDE 支持 | ❌ 字符串无补全 | ✅ 属性自动补全 |
+
+**静态类型检查支持**：使用 Pydantic + mypy/pyright 可检测：
+- 字段拼写错误
+- 类型不匹配（`list` vs `str`）
+- 必填字段遗漏
+
+**不需要大改**：只需将 `MemoryService.format_memory_for_prompt()` 的逻辑迁移到 `ContextBuilder.to_prompt_string()`，调用处不变。
 
 ---
 
@@ -1245,44 +1318,29 @@ except Exception as e:
 
 ## 六、实施计划
 
-### Phase 1: 情绪检测基础（1天）
+> 详细优先级排序见 [priority.md](./priority.md)
 
-| 任务 | 产出 | 负责人 |
-|------|------|--------|
-| 实现 EmotionDetector | `app/services/emotion/detector.py` | 后端 |
-| 实现 EmotionAnalyzer | `app/services/emotion/analyzer.py` | 后端 |
-| 实现情绪 API | `/api/emotion/detect` | 后端 |
-| 单元测试 | `tests/emotion/test_detector.py` | 后端 |
+### Phase 1: 确定新增功能（1天）
 
-### Phase 2: Supermemory 集成（0.5天）
+| 任务 | 产出 | 优先级 | 工时 |
+|------|------|--------|------|
+| ContextBuilder | `app/services/memory/context_builder.py` | P0 | 0.5天 |
+| EmotionDetector | `app/services/emotion/detector.py` | P0 | 0.5天 |
+| update_memory 调用 | `app/api/chat.py` 修改 | P1 | 0.5天 |
 
-| 任务 | 产出 | 负责人 |
-|------|------|--------|
-| 实现 SupermemoryClient | `app/services/supermarket/client.py` | 后端 |
-| 集成到 MemoryManager | `app/services/memory/manager.py` | 后端 |
+### Phase 2: 语音/图片情绪分析（1天）
 
-### Phase 3: 聊天接口重构（1天）
+| 任务 | 产出 | 优先级 | 工时 |
+|------|------|--------|------|
+| EmotionAnalyzer | `app/services/emotion/analyzer.py` | P1 | 1天 |
 
-| 任务 | 产出 | 负责人 |
-|------|------|--------|
-| 重构 ChatService | `app/services/chat_service.py` | 后端 |
-| 重构 /api/chat | `app/api/chat.py` | 后端 |
-| 端到端测试 | 验证完整流程 | 后端 |
+### Phase 3: 待定功能（暂不排期）
 
-### Phase 4: 记忆管理完善（1天）
-
-| 任务 | 产出 | 负责人 |
-|------|------|--------|
-| 完善 ContextBuilder | `app/services/memory/context_builder.py` | 后端 |
-| 实现 MemoryExtractor | `app/services/memory/extractor.py` | 后端 |
-| 完善 MemoryManager | `app/services/memory/manager.py` | 后端 |
-
-### Phase 5: 观测层与联调（0.5天）
-
-| 任务 | 产出 | 负责人 |
-|------|------|--------|
-| 结构化日志 | 日志字段规范 | 后端 |
-| 前后端联调 | 验证完整流程 | 全团队 |
+| 任务 | 说明 | 风险 |
+|------|------|------|
+| 评测体系 | Prompt 效果量化 | 高 |
+| 情绪 adapter | 情绪→生成风格映射 | 中 |
+| 观测层指标 | Prometheus 接入 | 低 |
 
 ---
 
