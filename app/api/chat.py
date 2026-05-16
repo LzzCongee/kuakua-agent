@@ -598,6 +598,30 @@ async def _update_session_after_chat(
                 if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
                     await memory_service.update_user_profile(user_id, profile_update)
                     logger.info(f"用户画像已更新 | user_id={user_id} | emotion={profile_update.last_emotion} | tags={profile_update.user_tags}")
+
+                # 情绪趋势跟踪：追加到情绪历史，检查是否形成稳定偏好
+                current_emotion = extraction_result.emotion if extraction_result else None
+                if current_emotion and current_emotion != "neutral":
+                    has_stable, stable_emotion = await memory_service.append_emotion_history(user_id, current_emotion)
+                    if has_stable:
+                        # 情绪偏好稳定，调用 add_memory 记录偏好到 Supermemory
+                        logger.info(f"情绪偏好稳定，记录到 Supermemory | user_id={user_id} | emotion={stable_emotion}")
+                        try:
+                            # 使用 add_memory 记录情绪偏好（不是 update_memory，因为 update_memory 需要 memory_id）
+                            await mcp_client.call(
+                                "add_memory",
+                                content=f"用户情绪偏好：{stable_emotion}（根据对话分析得出的稳定情绪倾向）",
+                                user_id=user_id,
+                                metadata={
+                                    "type": "preference",
+                                    "category": "emotion_preference",
+                                    "emotion": stable_emotion,
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                },
+                            )
+                            logger.info(f"Supermemory 情绪偏好记录成功 | user_id={user_id} | emotion={stable_emotion}")
+                        except Exception as e:
+                            logger.warning(f"Supermemory 记录失败（不影响主流程）| user_id={user_id} | error={e}")
             else:
                 logger.debug(f"无文本输入，跳过记忆提取 | user_id={user_id}")
 
@@ -719,6 +743,31 @@ async def _update_session_after_chat_with_debug(
                 )
                 if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
                     await memory_service.update_user_profile(user_id, profile_update)
+
+                # 情绪趋势跟踪（调试模式）
+                current_emotion = extraction_result.emotion if extraction_result else None
+                if current_emotion and current_emotion != "neutral":
+                    has_stable, stable_emotion = await memory_service.append_emotion_history(user_id, current_emotion)
+                    debug_info.extraction["emotion_history"] = {
+                        "current": current_emotion,
+                        "has_stable_preference": has_stable,
+                        "stable_emotion": stable_emotion,
+                    }
+                    if has_stable:
+                        try:
+                            await mcp_client.call(
+                                "add_memory",
+                                content=f"用户情绪偏好：{stable_emotion}（根据对话分析得出的稳定情绪倾向）",
+                                user_id=user_id,
+                                metadata={
+                                    "type": "preference",
+                                    "category": "emotion_preference",
+                                    "emotion": stable_emotion,
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(f"Supermemory 记录失败（调试模式）| error={e}")
 
                 debug_info.extraction = {
                     "source": extraction_result.source,

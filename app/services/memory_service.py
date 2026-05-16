@@ -399,6 +399,54 @@ class MemoryService:
         logger.debug(f"偏好场景更新 | user_id={user_id} | scene={scene}")
         return profile
 
+    async def append_emotion_history(self, user_id: str, emotion: str) -> tuple[bool, str | None]:
+        """
+        追加情绪到用户情绪历史，并检查是否形成稳定偏好
+
+        当同一情绪连续出现 3+ 次时，认为形成稳定偏好。
+        只保留最近 5 次情绪记录。
+
+        Args:
+            user_id: 用户ID
+            emotion: 情绪类型 (happy/excited/exhausted/sad/frustrated/calm)
+
+        Returns:
+            tuple: (has_stable_preference, stable_emotion)
+                - has_stable_preference: 是否有稳定情绪偏好
+                - stable_emotion: 稳定偏好情绪类型（如果形成），否则 None
+        """
+        profile = await self.get_or_create_profile(user_id)
+
+        # 解析现有情绪历史
+        history: list[str] = []
+        if profile.emotion_history:
+            try:
+                history = json.loads(profile.emotion_history)
+            except (json.JSONDecodeError, TypeError):
+                history = []
+
+        # 追加新情绪（忽略 neutral）
+        if emotion and emotion != "neutral":
+            history.append(emotion)
+
+        # 只保留最近 5 次
+        if len(history) > 5:
+            history = history[-5:]
+
+        # 保存回数据库
+        profile.emotion_history = json.dumps(history, ensure_ascii=False)
+        await self.session.flush()
+
+        logger.debug(f"情绪历史更新 | user_id={user_id} | history={history} | latest={emotion}")
+
+        # 检查是否形成稳定偏好：最近 3 次情绪都相同
+        if len(history) >= 3 and len(set(history[-3:])) == 1:
+            stable = history[-1]
+            logger.info(f"情绪偏好稳定 | user_id={user_id} | emotion={stable} | history={history}")
+            return True, stable
+
+        return False, None
+
     # ==================== 高光里程碑记忆 ====================
 
     async def get_milestones(self, user_id: str, limit: int = 10) -> list[Milestone]:

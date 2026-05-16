@@ -128,6 +128,7 @@ class UserProfile(Base):
     user_tags: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
     avoid_words: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
     last_emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    emotion_history: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")  # 情绪历史 JSON
     conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)

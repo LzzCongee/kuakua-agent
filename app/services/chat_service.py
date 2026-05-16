@@ -146,72 +146,26 @@ class ChatService:
     def _inject_memory(self, system_prompt: str, memory: MemorySummary) -> str:
         """
         将用户记忆注入到 system prompt
-        
+
         Args:
             system_prompt: 原始 system prompt
             memory: 用户记忆汇总
-            
+
         Returns:
             str: 注入记忆后的 system prompt
         """
-        parts: list[str] = []
-        
-        # 偏好场景和风格
-        if memory.prefer_scene:
-            parts.append(f"- 偏好场景：{memory.prefer_scene}")
-        if memory.prefer_style:
-            parts.append(f"- 喜欢风格：{memory.prefer_style}")
-        
-        # 用户标签
-        if memory.user_tags:
-            tags_str = ", ".join(memory.user_tags[:5])
-            parts.append(f"- 用户标签：{tags_str}")
-        
-        # 最近情绪
-        if memory.last_emotion:
-            parts.append(f"- 当前情绪：{memory.last_emotion}")
-        
-        # 最近对话（用于保持上下文连贯，按完整轮次拼接）
-        if memory.recent_messages:
-            from datetime import datetime as _dt
-            msg_list: list[str] = []
-            msgs = memory.recent_messages
-            last_assistant_idx = None
-            for i in range(len(msgs) - 1, -1, -1):
-                if msgs[i].get("role") == "assistant":
-                    last_assistant_idx = i
-                    break
-            if last_assistant_idx is not None:
-                start = max(0, last_assistant_idx - 1)
-                first_msg = msgs[start]
-                ts = first_msg.get("timestamp", "")
-                time_str = ""
-                if ts:
-                    try:
-                        dt = _dt.fromisoformat(ts)
-                        time_str = f"({dt.strftime('%H:%M')}) "
-                    except (ValueError, TypeError):
-                        pass
-                for idx, msg in enumerate(msgs[start:last_assistant_idx + 1]):
-                    role = "用户" if msg.get("role") == "user" else "夸夸"
-                    content = str(msg.get("content") or "")[:80]
-                    prefix = time_str if idx == 0 else ""
-                    msg_list.append(f"{prefix}{role}：{content}")
-            if msg_list:
-                parts.append(f"- 最近对话：{' | '.join(msg_list)}")
-        
-        # 高光里程碑（用于夸得真诚）
-        if memory.milestones:
-            milestones_str = "; ".join(memory.milestones[:3])
-            parts.append(f"- 高光时刻：{milestones_str}")
-        
-        if not parts:
+        # 使用 MemoryContext 进行类型安全的记忆注入
+        from app.services.memory import MemoryContext
+
+        context = MemoryContext.from_memory_summary(memory)
+        memory_str = context.to_prompt_string()
+
+        if not memory_str:
             logger.debug("记忆注入: 无内容可注入")
             return system_prompt
 
-        memory_block = "\n".join(parts)
-        logger.debug(f"记忆注入: 最终注入内容 | {memory_block[:300]}")
-        return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
+        logger.debug(f"记忆注入: 最终注入内容 | {memory_str[:300]}")
+        return f"{system_prompt}\n\n{memory_str}"
     
     async def _generate_text_only(self, system_prompt: str, text: str) -> str:
         """
