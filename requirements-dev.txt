@@ -2,3 +2,4 @@
 
 mypy>=1.8.0
 pydantic[mypy]>=2.0
+ruff>=0.9.0
