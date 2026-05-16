@@ -9,9 +9,7 @@
 import re
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional
-
-from app.core.logging import get_logger
+from ...core.logging import get_logger
 
 logger = get_logger(__name__)
 

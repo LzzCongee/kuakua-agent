@@ -147,7 +147,7 @@ class ChatRequest(BaseModel):
     """
     交互式夸夸请求模型
 
-    用于接收用户发送的文字和图片，生成个性化的夸赞文案
+    用于接收用户发送的文字、图片或音频，生成个性化的夸赞文案
     """
     model_config = ConfigDict(
         json_schema_extra={
@@ -172,18 +172,22 @@ class ChatRequest(BaseModel):
             "直接传 base64 字符串即可，不需要 data:image/... 前缀。"
         ),
     )
+    audio: Optional[str] = Field(
+        default=None,
+        description="base64 编码的音频数据（mp3/wav/m4a 格式），用于语音输入",
+    )
     scene: str = Field(
         default="general",
         description="场景标签，可选值：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
     )
-    
+
     @model_validator(mode='after')
-    def validate_text_or_image(self):
+    def validate_text_or_image_or_audio(self):
         """
-        验证 text 和 image 至少要有一个不为空
+        验证 text、image、audio 至少要有一个不为空
         """
-        if not self.text and not self.image:
-            raise ValueError("text 和 image 至少要有一个不为空")
+        if not self.text and not self.image and not self.audio:
+            raise ValueError("text、image、audio 至少要有一个不为空")
 
         if self.image:
             img = self.image.strip()
