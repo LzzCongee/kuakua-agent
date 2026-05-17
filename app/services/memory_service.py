@@ -579,6 +579,8 @@ class MemoryService:
             return []
 
         memories = [item.get("memory", "") or item.get("content", "") for item in result.get("results", [])]
+        # DEBUG: 打印完整 result 结构以便分析
+        logger.info(f"[DEBUG] search_memory raw result: {result}")
         logger.debug(f"语义记忆查询完成 | count={len(memories)} | raw_result_keys={list(result.keys())}")
         for i, mem in enumerate(memories):
             logger.debug(f"语义记忆[{i}] | content={mem[:100]}")

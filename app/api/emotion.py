@@ -6,11 +6,11 @@
 2. 语音/图片情绪分析（LLM，需接入）
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.core.logging import get_logger, get_trace_id
-from app.services.emotion import EmotionDetector, EmotionType, emotion_detector
+from ..core.logging import get_logger, get_trace_id
+from ..services.emotion import EmotionType, emotion_detector
 
 router = APIRouter(prefix="/api/emotion", tags=["情绪管理"])
 logger = get_logger(__name__)
@@ -23,7 +23,9 @@ class EmotionDetectRequest(BaseModel):
 
 class EmotionDetectResponse(BaseModel):
     """情绪检测响应"""
-    emotion: str = Field(description="情绪类型 (happy/excited/exhausted/sad/frustrated/calm)")
+    emotion: str = Field(
+        description="情绪类型 (happy/excited/exhausted/sad/frustrated/calm)"
+    )
     intensity: float = Field(ge=0.0, le=1.0, description="置信度 0-1")
     keywords: list[str] = Field(default_factory=list, description="触发关键词")
     style_guidance: str = Field(description="生成风格指导建议")

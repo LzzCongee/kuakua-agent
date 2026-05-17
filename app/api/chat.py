@@ -14,11 +14,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -36,15 +37,14 @@ from ..models.schemas import (
     PromptContent,
     UserProfileUpdate,
 )
-import uuid
 from ..prompts.templates import get_chat_prompt
 from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
+from ..services.emotion.middleware import detect_emotion_from_request
 from ..services.memory_extractor import MemoryExtractor
 from ..services.memory_service import MemoryService
 from ..services.prompt_service import PromptService
-from ..services.emotion.analyzer import EmotionAnalyzer
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -112,25 +112,10 @@ def get_chat_service() -> ChatService:
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 
 
-def _get_emotion_analyzer() -> EmotionAnalyzer:
-    """
-    获取 EmotionAnalyzer 实例
-
-    使用 ai_vision 配置（支持多模态）进行语音分析。
-    如果没有配置 vision，则降级使用 ai_chat。
-    """
-    settings = get_settings()
-    # 优先使用 ai_vision（支持多模态），否则降级到 ai_chat
-    if settings.ai_vision.api_key and settings.ai_vision.api_key != "CHANGE_ME_IN_PRODUCTION":
-        provider = OpenAICompatibleProvider.from_config(settings.ai_vision)
-    else:
-        provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
-    return EmotionAnalyzer(provider=provider)
-
-
 @router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     service: ChatServiceDep,
     session: SessionDep,
     user_id: HeaderUserID,
@@ -147,46 +132,55 @@ async def chat(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
-    logger.info(f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
-    logger.debug(f"用户输入详情 | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)} | has_audio={bool(request.audio)}")
+    logger.info(
+        f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | "
+        f"scene={chat_request.scene}"
+    )
+    logger.debug(
+        f"用户输入详情 | user_id={user_id} | "
+        f"text={chat_request.text[:100] if chat_request.text else 'None'} | "
+        f"has_image={bool(chat_request.image)} | has_audio={bool(chat_request.audio)}"
+    )
 
     if not session_id:
         session_id = f"session_{user_id}"
 
     # 判断输入类型
-    has_text = bool(request.text and request.text.strip())
-    has_image = bool(request.image and request.image.strip())
-    has_audio = bool(request.audio and request.audio.strip())
+    has_text = bool(chat_request.text and chat_request.text.strip())
+    has_image = bool(chat_request.image and chat_request.image.strip())
+    has_audio = bool(chat_request.audio and chat_request.audio.strip())
 
-    # 优先处理音频输入（语音 → 文字 + 情绪）
-    input_text = request.text or ""
-    input_emotion = None
+    # 从中间件获取情绪上下文（已由 EmotionMiddleware 前置检测）
+    # 如果中间件未设置（不在 middleware 路径或解析失败），fallback 到手动检测
+    emotion_context = getattr(request.state, "emotion_context", None)
+    if emotion_context is None:
+        emotion_context = await detect_emotion_from_request(
+            request,
+            text=chat_request.text,
+            audio=chat_request.audio if has_audio else None,
+        )
+        logger.debug(f"中间件未设置，回调手动检测 | primary={emotion_context.primary_emotion}")
+    else:
+        logger.debug(
+            f"中间件情绪检测完成 | primary={emotion_context.primary_emotion} | "
+            f"text={emotion_context.text_emotion} | audio={emotion_context.audio_emotion}"
+        )
 
-    if has_audio:
-        # 音频输入：调用 EmotionAnalyzer 进行 ASR + 情绪识别
-        logger.info(f"检测到音频输入 | audio_length={len(request.audio)}")
-        emotion_analyzer = _get_emotion_analyzer()
-        try:
-            audio_result = await emotion_analyzer.analyze_audio(request.audio)
-            if not audio_result.text:
-                logger.warning(f"语音识别返回空文本 | user_id={user_id}")
-                return ApiResponse(code=400, message="语音识别失败，请使用文字输入", data=None)
-            input_text = audio_result.text
-            input_emotion = audio_result.emotion
-            logger.info(f"音频分析完成 | text={input_text[:50]}... | emotion={input_emotion}")
-        except Exception as e:
-            logger.error(f"音频分析异常 | error={e}")
-            return ApiResponse(code=400, message=f"语音识别失败: {e}，请使用文字输入", data=None)
-    elif has_text and has_image:
-        input_type = "mixed"
+    # 判断输入类型（前端 ASR 完成后，audio 字段应为空，只有 text）
+    if has_text and has_image:
+        input_type: Literal["mixed", "image_only", "text_only"] = "mixed"
     elif has_image:
         input_type = "image_only"
-    else:
+    elif has_text:
         input_type = "text_only"
+    else:
+        # 只有音频的情况（前端 ASR 失败或未做）
+        logger.warning(f"无文字输入，仅有音频 | user_id={user_id} | has_audio={has_audio}")
+        return ApiResponse(code=400, message="语音识别失败，请使用文字输入或确保小程序语音识别已启用", data=None)
 
     # 尝试从 AB 测试获取 prompt
     prompt_override = await _try_get_ab_test_prompt(
-        request.scene, user_id, session
+        chat_request.scene, user_id, session
     )
     prompt_source = "ab_test" if prompt_override else None
     logger.debug(f"AB测试结果 | user_id={user_id} | has_override={prompt_override is not None}")
@@ -195,7 +189,7 @@ async def chat(
     tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
 
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
+    memory_summary = await _get_user_memory(user_id, session_id, session, chat_request.text or "", mcp=tracker)
     if memory_summary:
         logger.debug(f"记忆注入详情 | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -207,7 +201,7 @@ async def chat(
         if prompt_override:
             system_prompt = prompt_override["system"]
         else:
-            db_prompt = await _try_get_db_prompt(request.scene, input_type, session)
+            db_prompt = await _try_get_db_prompt(chat_request.scene, input_type, session)
             if db_prompt:
                 system_prompt = db_prompt["system"]
                 prompt_source = prompt_source or "db"
@@ -219,8 +213,8 @@ async def chat(
         if memory_summary:
             system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
 
-        # 构建用户消息（优先使用音频转写文本）
-        user_message = input_text if has_audio else (request.text or "")
+        # 构建用户消息
+        user_message = chat_request.text or ""
         if has_image:
             user_message += " [含图片输入]"
 
@@ -235,16 +229,6 @@ async def chat(
             extraction=None,
         )
 
-    # 如果有音频输入，创建修改后的请求（使用 ASR 文本）
-    chat_request = request
-    if has_audio and input_text:
-        from ..models.schemas import ChatRequest as CR
-        chat_request = CR(
-            text=input_text,
-            image=request.image,
-            scene=request.scene,
-        )
-
     try:
         response = await service.chat(
             chat_request,
@@ -257,7 +241,7 @@ async def chat(
             logger.warning(f"AI调用失败(调试模式) | user_id={user_id} | error={e}")
             error_response = ChatResponse(
                 content=f"[AI 调用失败] {e}",
-                scene=request.scene,
+                scene=chat_request.scene,
                 has_image=has_image,
             )
             error_response.debug = debug_info
@@ -284,7 +268,8 @@ async def chat(
 
 @router.post("/stream")
 async def chat_stream(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     service: ChatServiceDep,
     session: SessionDep,
     user_id: HeaderUserID,
@@ -301,8 +286,8 @@ async def chat_stream(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
-    logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
-    logger.debug(f"用户输入详情(流式) | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)} | has_audio={bool(request.audio)}")
+    logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={chat_request.scene}")
+    logger.debug(f"用户输入详情(流式) | user_id={user_id} | text={chat_request.text[:100] if chat_request.text else 'None'} | has_image={bool(chat_request.image)} | has_audio={bool(chat_request.audio)}")
 
     if not session_id:
         session_id = f"session_{user_id}"
@@ -310,40 +295,31 @@ async def chat_stream(
     settings = get_settings()
 
     # 判断输入类型
-    has_text = bool(request.text and request.text.strip())
-    has_image = bool(request.image and request.image.strip())
-    has_audio = bool(request.audio and request.audio.strip())
+    has_text = bool(chat_request.text and chat_request.text.strip())
+    has_image = bool(chat_request.image and chat_request.image.strip())
+    has_audio = bool(chat_request.audio and chat_request.audio.strip())
 
-    # 优先处理音频输入（语音 → 文字 + 情绪）
-    input_text = request.text or ""
-    input_emotion = None
+    # 情绪检测（使用独立 emotion pipeline）
+    emotion_context = await detect_emotion_from_request(
+        request, text=chat_request.text, audio=chat_request.audio if has_audio else None
+    )
+    logger.debug(f"情绪检测完成(流式) | primary={emotion_context.primary_emotion} | text={emotion_context.text_emotion} | audio={emotion_context.audio_emotion}")
 
-    if has_audio:
-        # 音频输入：调用 EmotionAnalyzer 进行 ASR + 情绪识别
-        logger.info(f"检测到音频输入(流式) | audio_length={len(request.audio)}")
-        emotion_analyzer = _get_emotion_analyzer()
-        try:
-            audio_result = await emotion_analyzer.analyze_audio(request.audio)
-            input_text = audio_result.text
-            input_emotion = audio_result.emotion
-            logger.info(f"音频分析完成(流式) | text={input_text[:50]}... | emotion={input_emotion}")
-        except Exception as e:
-            logger.error(f"音频分析失败(流式)，降级为纯文本 | error={e}")
-            input_emotion = "calm"
-
+    # 判断输入类型（前端 ASR 完成后，audio 字段应为空，只有 text）
     input_type: Literal["text_only", "image_only", "mixed"]
-    if has_audio and input_text:
-        input_type = "text_only"  # 音频转文本后，按文本处理
-    elif has_text and has_image:
+    if has_text and has_image:
         input_type = "mixed"
     elif has_image:
         input_type = "image_only"
-    else:
+    elif has_text:
         input_type = "text_only"
+    else:
+        logger.warning(f"无文字输入，仅有音频 | user_id={user_id} | has_audio={has_audio}")
+        return ApiResponse(code=400, message="语音识别失败，请使用文字输入或确保小程序语音识别已启用", data=None)
 
     # 获取 system prompt（优先从 AB 测试或数据库）
     prompt_override = await _try_get_ab_test_prompt(
-        request.scene, user_id, session
+        chat_request.scene, user_id, session
     )
     prompt_source = "ab_test" if prompt_override else None
     logger.debug(f"AB测试结果(流式) | user_id={user_id} | has_override={prompt_override is not None}")
@@ -352,7 +328,7 @@ async def chat_stream(
     tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
 
     # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
+    memory_summary = await _get_user_memory(user_id, session_id, session, chat_request.text or "", mcp=tracker)
     if memory_summary:
         logger.debug(f"记忆注入详情(流式) | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
     else:
@@ -362,7 +338,7 @@ async def chat_stream(
         system_prompt = prompt_override["system"]
     else:
         # 尝试从数据库获取
-        db_prompt = await _try_get_db_prompt(request.scene, input_type, session)
+        db_prompt = await _try_get_db_prompt(chat_request.scene, input_type, session)
         if db_prompt:
             system_prompt = db_prompt["system"]
             prompt_source = prompt_source or "db"
@@ -379,7 +355,7 @@ async def chat_stream(
     # 调试模式：构建调试信息
     debug_info: ChatDebugInfo | None = None
     if debug:
-        user_message = input_text if has_audio else (request.text or "")
+        user_message = chat_request.text or ""
         if has_image:
             user_message += " [含图片输入]"
         debug_info = ChatDebugInfo(
@@ -402,6 +378,7 @@ async def chat_stream(
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
             image_desc = None
+            text_input = chat_request.text if has_text else ""
             if has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
                 logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type} | timeout={multimodal_timeout}s")
@@ -409,8 +386,8 @@ async def chat_stream(
                     async with asyncio.timeout(multimodal_timeout):
                         multimodal_result = await service._generate_multimodal(
                             system_prompt=system_prompt,
-                            text=input_text if has_audio else (request.text if has_text else None),
-                            image=request.image,
+                            text=text_input,
+                            image=chat_request.image,
                         )
                 except TimeoutError:
                     logger.warning(f"多模态生成超时 | user_id={user_id} | timeout={multimodal_timeout}s")
@@ -428,7 +405,7 @@ async def chat_stream(
                 }
             else:
                 async for chunk in service.provider.generate_stream(
-                    prompt=input_text if has_audio else (request.text or ""),
+                    prompt=text_input,
                     system_prompt=system_prompt,
                     temperature=0.7,
                     max_tokens=150,
@@ -442,16 +419,12 @@ async def chat_stream(
             logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
             logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200] if full_content else ''}")
 
-            response = ChatResponse(content=full_content, scene=request.scene, has_image=has_image, image_desc=image_desc)
-
-            # 创建 ASR 文本的请求对象用于会话更新
-            from ..models.schemas import ChatRequest as CR
-            asr_request = CR(text=input_text, image=request.image, scene=request.scene)
+            response = ChatResponse(content=full_content, scene=chat_request.scene, has_image=has_image, image_desc=image_desc)
 
             if debug and debug_info:
                 # 调试模式：同步执行后台任务，捕获 MCP 调用和记忆提取
                 await _update_session_after_chat_with_debug(
-                    user_id, session_id, asr_request, response, debug_info, tracker
+                    user_id, session_id, chat_request, response, debug_info, tracker
                 )
                 yield {
                     "event": "debug",
@@ -462,7 +435,7 @@ async def chat_stream(
                     ),
                 }
             else:
-                task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, asr_request, response))
+                task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
                 task.add_done_callback(_handle_task_exception)
 
             # 发送完成事件（不含 content，避免前端重复追加）

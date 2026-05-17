@@ -21,6 +21,7 @@ from .core.exceptions import register_exception_handlers
 from .core.logging import get_logger, register_logging_middleware
 from .core.mcp_client import mcp_client
 from .models.database import close_db, init_db
+from .services.emotion.middleware import EmotionMiddleware
 
 
 @asynccontextmanager
@@ -105,6 +106,9 @@ app.add_middleware(
 
 # 注册日志中间件（必须在路由注册之前）
 register_logging_middleware(app)
+
+# 注册情绪检测中间件（仅对 /api/chat 路径生效）
+app.add_middleware(EmotionMiddleware)
 
 # 注册全局异常处理器
 register_exception_handlers(app)

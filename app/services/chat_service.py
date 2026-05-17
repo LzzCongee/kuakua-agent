@@ -119,10 +119,10 @@ class ChatService:
         # 根据输入类型调用不同的生成方法
         image_desc = None
         if input_type == "text_only":
-            # 根据逻辑，text_only 模式时 text 一定不为空
-            assert request.text is not None
+            # text 可能为空（纯图片场景），使用空字符串
+            text_content = request.text or ""
             logger.debug("开始纯文字生成")
-            content = await self._generate_text_only(system_prompt, request.text)
+            content = await self._generate_text_only(system_prompt, text_content)
             logger.debug(f"纯文字生成完成 | content_length={len(content)}")
         else:
             logger.debug(f"开始多模态生成 | text={has_text} | image={has_image}")
