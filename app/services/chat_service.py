@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from ..config import ModelConfig
@@ -140,7 +140,7 @@ class ChatService:
             scene=request.scene,
             has_image=has_image,
             image_desc=image_desc,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(UTC)
         )
     
     def _inject_memory(self, system_prompt: str, memory: MemorySummary) -> str:

@@ -6,8 +6,9 @@ Pydantic 模型定义模块
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Generic, Optional, TypedDict, TypeVar
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -19,7 +20,7 @@ class PromptContent(TypedDict):
 
 def _utc_now() -> datetime:
     """返回带时区信息的 UTC 当前时间"""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class QuoteResponse(BaseModel):

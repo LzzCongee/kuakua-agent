@@ -6,20 +6,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal, Optional
 
-from ..models.schemas import QuoteResponse
-from ..providers.base import BaseAIProvider, AIProviderException
+from ..core.exceptions import AIServiceException
+from ..core.logging import get_logger
+from ..models.schemas import MemorySummary, QuoteResponse
 from ..prompts.templates import (
     SceneType,
     get_prompt,
     get_scene_by_value,
 )
-from ..core.exceptions import AIServiceException
-from ..core.logging import get_logger
+from ..providers.base import AIProviderException, BaseAIProvider
 from ..services.memory_service import MemoryService
-from ..models.schemas import MemorySummary
 
 logger = get_logger(__name__)
 
@@ -96,7 +95,7 @@ class QuoteService:
             return QuoteResponse(
                 content=content,
                 scene=SceneType.GENERAL.value,
-                created_at=datetime.now(timezone.utc)
+                created_at=datetime.now(UTC)
             )
         except AIProviderException as e:
             raise AIServiceException(f"生成随机夸夸失败: {e.message}")
@@ -160,7 +159,7 @@ class QuoteService:
             return QuoteResponse(
                 content=content,
                 scene=scene_type.value,
-                created_at=datetime.now(timezone.utc)
+                created_at=datetime.now(UTC)
             )
         except AIProviderException as e:
             raise AIServiceException(f"生成场景夸夸失败: {e.message}")

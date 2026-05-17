@@ -15,7 +15,7 @@ Prompt 模板管理模块
 from __future__ import annotations
 
 import tomllib
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
@@ -24,7 +24,7 @@ from ..models.schemas import PromptContent
 TOML_PATH = Path(__file__).parent / "templates.toml"
 
 
-class SceneType(str, Enum):
+class SceneType(StrEnum):
     """
     夸赞场景类型枚举
 

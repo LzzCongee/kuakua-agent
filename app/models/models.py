@@ -7,7 +7,7 @@ SQLAlchemy ORM 模型定义
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,7 +17,7 @@ from ..models.database import Base
 
 def _utc_now() -> datetime:
     """返回带时区信息的 UTC 时间"""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Favorite(Base):
@@ -83,7 +83,7 @@ class Session(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
     # 关系
-    messages: Mapped[list["Message"]] = relationship("Message", back_populates="session", lazy="selectin")
+    messages: Mapped[list[Message]] = relationship("Message", back_populates="session", lazy="selectin")
 
 
 class Message(Base):
@@ -109,7 +109,7 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     # 关系
-    session: Mapped["Session"] = relationship("Session", back_populates="messages")
+    session: Mapped[Session] = relationship("Session", back_populates="messages")
 
 
 class UserProfile(Base):

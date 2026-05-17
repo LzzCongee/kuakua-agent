@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -118,7 +118,7 @@ class MemoryService:
         """
         session = await self.get_session(session_id)
         if session:
-            session.updated_at = datetime.now(timezone.utc)
+            session.updated_at = datetime.now(UTC)
             await self.session.flush()
             logger.debug(f"会话已更新 | session_id={session_id}")
         else:
@@ -171,7 +171,7 @@ class MemoryService:
         session = await self.get_session(session_id)
         if session:
             session.message_count = (session.message_count or 0) + 1
-            session.last_message_at = datetime.now(timezone.utc)
+            session.last_message_at = datetime.now(UTC)
 
         await self.session.flush()
         logger.debug(f"消息已添加 | session_id={session_id} | trace_id={trace_id} | role={role}")
@@ -280,7 +280,7 @@ class MemoryService:
         Returns:
             int: 删除的记录数
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         stmt = delete(Session).where(Session.created_at < cutoff)
         result = await self.session.execute(stmt)
         logger.debug(f"清理过期会话 | hours={hours} | cutoff={cutoff} | deleted={result.rowcount}")
@@ -356,7 +356,7 @@ class MemoryService:
             updated_fields.append("last_emotion")
 
         # 更新活跃时间和对话计数
-        profile.last_active = datetime.now(timezone.utc)
+        profile.last_active = datetime.now(UTC)
         profile.conversation_count = (profile.conversation_count or 0) + 1
 
         await self.session.flush()
@@ -376,7 +376,7 @@ class MemoryService:
         """
         profile = await self.get_or_create_profile(user_id)
         profile.favorite_count = (profile.favorite_count or 0) + 1
-        profile.last_active = datetime.now(timezone.utc)
+        profile.last_active = datetime.now(UTC)
         await self.session.flush()
         logger.debug(f"收藏计数增加 | user_id={user_id} | favorite_count={profile.favorite_count}")
         return profile
@@ -394,7 +394,7 @@ class MemoryService:
         """
         profile = await self.get_or_create_profile(user_id)
         profile.prefer_scene = scene
-        profile.last_active = datetime.now(timezone.utc)
+        profile.last_active = datetime.now(UTC)
         await self.session.flush()
         logger.debug(f"偏好场景更新 | user_id={user_id} | scene={scene}")
         return profile
@@ -615,7 +615,7 @@ class MemoryService:
                 "type": "chat",
                 "scene": scene,
                 "emotion": emotion,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
         if result is None:

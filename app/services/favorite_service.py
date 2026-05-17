@@ -7,14 +7,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.exceptions import DatabaseException, NotFoundException
 from ..models.models import Favorite
 from ..models.schemas import FavoriteCreate, FavoriteResponse
-from ..core.exceptions import DatabaseException, NotFoundException
 
 
 class FavoriteService:

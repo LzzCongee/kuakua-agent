@@ -18,7 +18,7 @@ supermemory MCP Server 提供语义记忆功能：
 import asyncio
 import json
 from contextlib import AsyncExitStack
-from typing import Any, Dict, Optional  # noqa: UP035
+from typing import Any, Optional  # noqa: UP035
 
 from app.config import get_settings
 from app.core.logging import get_logger
@@ -46,7 +46,7 @@ class MCPClient:
 
         # 构建 headers：优先使用 supermemory_headers，否则用 supermemory_token
         if settings.supermemory_headers:
-            self.headers: Dict[str, str] = dict(settings.supermemory_headers)
+            self.headers: dict[str, str] = dict(settings.supermemory_headers)
         else:
             self.headers = {"token": settings.supermemory_token}
 
@@ -62,8 +62,8 @@ class MCPClient:
             return
 
         try:
-            from mcp.client.sse import sse_client
             from mcp import ClientSession
+            from mcp.client.sse import sse_client
 
             # 掩码显示 token（只显示前4位）
             token = self.headers.get("token", "")
@@ -97,7 +97,7 @@ class MCPClient:
                 self._connected = True
                 self._available_tools = tool_names
                 logger.info(f"MCP 连接已建立 | 可用工具: {tool_names}")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(
                 f"MCP 连接超时 ({self.timeout}s) | url={self.url}\n"
                 f"  SSE 连接成功但 MCP 握手无响应，请检查：\n"
@@ -132,7 +132,7 @@ class MCPClient:
         """返回当前可用的 MCP 工具列表"""
         return self._available_tools
 
-    async def call(self, tool_name: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    async def call(self, tool_name: str, **kwargs: Any) -> Optional[dict[str, Any]]:
         """
         调用 MCP 工具，带超时和静默降级
 
@@ -176,7 +176,7 @@ class MCPClient:
             logger.info(f"MCP 调用成功 [{tool_name}] | 返回空对象")
             return {}
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"MCP 调用超时 [{tool_name}] | timeout={self.timeout}s")
             return None
         except Exception as e:

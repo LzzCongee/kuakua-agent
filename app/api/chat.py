@@ -16,7 +16,10 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
+<<<<<<< HEAD
 from dataclasses import dataclass
+=======
+>>>>>>> main
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -483,8 +486,13 @@ async def chat_stream(
                 "event": "done",
                 "data": json.dumps(
                     {
+<<<<<<< HEAD
                         "scene": chat_request.scene,
                         "has_image": prep.has_image,
+=======
+                        "scene": request.scene,
+                        "has_image": has_image,
+>>>>>>> main
                         "created_at": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,

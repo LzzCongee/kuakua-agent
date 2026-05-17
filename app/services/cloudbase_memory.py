@@ -9,11 +9,11 @@ CloudBase 记忆服务 - 使用 CloudBase NoSQL Database
 使用 CloudBase NoSQL Database HTTP API
 """
 
+import hashlib
+import hmac
 import json
 import time
-import hmac
-import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -54,13 +54,13 @@ class CloudBaseDBClient:
         # 构建待签名字符串
         algorithm = "TC3-HMAC-SHA256"
         request_timestamp = int(time.time())
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date = datetime.now(UTC).strftime("%Y-%m-%d")
         credential_scope = f"{date}/tcb/tc3_request"
         hashed_canonical_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
         string_to_sign = f"{algorithm}\n{request_timestamp}\n{credential_scope}\n{hashed_canonical_request}"
         
         # 计算签名
-        secret_date = hmac.new(f"TC3{self.secret_key}".encode("utf-8"), date.encode("utf-8"), hashlib.sha256).digest()
+        secret_date = hmac.new(f"TC3{self.secret_key}".encode(), date.encode(), hashlib.sha256).digest()
         secret_service = hmac.new(secret_date, b"tcb", hashlib.sha256).digest()
         secret_signing = hmac.new(secret_service, b"tc3_request", hashlib.sha256).digest()
         signature = hmac.new(secret_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -134,7 +134,7 @@ class CloudBaseMemoryService:
                 return docs[0]
 
         # 创建新会话
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         session_data = {
             "session_id": session_id,
             "user_id": user_id,
@@ -165,7 +165,7 @@ class CloudBaseMemoryService:
             update_data = {
                 "$set": {
                     "messages": messages,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
+                    "updated_at": datetime.now(UTC).isoformat()
                 }
             }
             
@@ -191,7 +191,7 @@ class CloudBaseMemoryService:
     
     async def cleanup_expired_sessions(self, hours: int = 2) -> int:
         """清理过期会话"""
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         query = {"created_at": {"$lt": cutoff.isoformat()}}
         
         result = await self._query("sessions", query)
@@ -223,7 +223,7 @@ class CloudBaseMemoryService:
         profile = await self.get_user_profile(user_id)
         
         if not profile:
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             profile_data = {
                 "user_id": user_id,
                 "prefer_scene": None,
@@ -245,9 +245,9 @@ class CloudBaseMemoryService:
     
     async def update_user_profile(self, user_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """更新用户偏好"""
-        profile = await self.get_or_create_profile(user_id)
+        await self.get_or_create_profile(user_id)
         
-        update_data: dict[str, Any] = {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+        update_data: dict[str, Any] = {"$set": {"updated_at": datetime.now(UTC).isoformat()}}
         
         for key, value in data.items():
             if value is not None:
@@ -263,11 +263,11 @@ class CloudBaseMemoryService:
     
     async def increment_favorite_count(self, user_id: str) -> dict[str, Any]:
         """增加收藏次数"""
-        profile = await self.get_or_create_profile(user_id)
+        await self.get_or_create_profile(user_id)
         
         update_data = {
             "$inc": {"favorite_count": 1},
-            "$set": {"last_active": datetime.now(timezone.utc).isoformat()}
+            "$set": {"last_active": datetime.now(UTC).isoformat()}
         }
         
         query = {"user_id": user_id}
@@ -277,9 +277,9 @@ class CloudBaseMemoryService:
     
     async def update_prefer_scene(self, user_id: str, scene: str) -> dict[str, Any]:
         """更新用户偏好场景（根据使用频率自动调整）"""
-        profile = await self.get_or_create_profile(user_id)
+        await self.get_or_create_profile(user_id)
         
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         update_data = {
             "$set": {
                 "prefer_scene": scene,
@@ -312,7 +312,7 @@ class CloudBaseMemoryService:
         self, user_id: str, content: str, source: str = "user_input", importance: int = 1
     ) -> dict[str, Any]:
         """添加高光里程碑"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         milestone_data = {
             "user_id": user_id,
             "content": content,
