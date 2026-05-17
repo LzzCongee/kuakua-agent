@@ -995,7 +995,7 @@
                     document.getElementById('chatInput').value = '';
                     clearImages();
                     clearAudio();
-                } else:
+                } else {
                     // 调试模式下如果有部分内容，不弹 alert
                     if (debug && data.data && data.data.debug) {
                         appendMessage('user', text || '', hasImage);

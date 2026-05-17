@@ -168,12 +168,15 @@ async def chat(
         emotion_analyzer = _get_emotion_analyzer()
         try:
             audio_result = await emotion_analyzer.analyze_audio(request.audio)
+            if not audio_result.text:
+                logger.warning(f"语音识别返回空文本 | user_id={user_id}")
+                return ApiResponse(code=400, message="语音识别失败，请使用文字输入", data=None)
             input_text = audio_result.text
             input_emotion = audio_result.emotion
             logger.info(f"音频分析完成 | text={input_text[:50]}... | emotion={input_emotion}")
         except Exception as e:
-            logger.error(f"音频分析失败，降级为纯文本 | error={e}")
-            input_emotion = "calm"
+            logger.error(f"音频分析异常 | error={e}")
+            return ApiResponse(code=400, message=f"语音识别失败: {e}，请使用文字输入", data=None)
     elif has_text and has_image:
         input_type = "mixed"
     elif has_image:
