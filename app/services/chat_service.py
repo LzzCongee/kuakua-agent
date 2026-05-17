@@ -190,7 +190,7 @@ class ChatService:
         system_prompt: str,
         text: str | None,
         image: str | None
-    ) -> dict[str, str | None]:
+    ) -> dict[str, str]:
         """
         多模态场景生成（含图片）
 
@@ -258,7 +258,7 @@ class ChatService:
         # 解析 JSON 响应，提取夸赞文案和图片描述
         return self._parse_multimodal_response(raw)
     
-    def _parse_multimodal_response(self, raw: str) -> dict[str, str | None]:
+    def _parse_multimodal_response(self, raw: str) -> dict[str, str]:
         """
         解析多模态生成的 JSON 响应
 

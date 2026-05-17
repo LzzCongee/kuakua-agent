@@ -16,10 +16,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
-<<<<<<< HEAD
 from dataclasses import dataclass
-=======
->>>>>>> main
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -404,7 +401,7 @@ async def chat_stream(
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
             image_desc = None
-            text_input = chat_request.text if prep.has_text else ""
+            text_input: str = (chat_request.text or "") if prep.has_text else ""
 
             if prep.has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
@@ -486,13 +483,8 @@ async def chat_stream(
                 "event": "done",
                 "data": json.dumps(
                     {
-<<<<<<< HEAD
                         "scene": chat_request.scene,
                         "has_image": prep.has_image,
-=======
-                        "scene": request.scene,
-                        "has_image": has_image,
->>>>>>> main
                         "created_at": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,
