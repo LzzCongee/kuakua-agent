@@ -376,6 +376,165 @@ class EmotionFallbackManager:
   Doubao-Seed-2.0-mini → （失败则返回默认 calm, 0.5）
 ```
 
+### 5.5 重试机制设计
+
+**业界最佳实践（参考 OpenAI SDK）**：
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| 最大重试次数 | 2-3 次 | 总共 3-4 次尝试 |
+| 初始退避间隔 | 0.5s | 首次重试等待 |
+| 最大退避间隔 | 8-16s | 防止过长等待 |
+| 退避策略 | 指数退避 + 随机抖动 | `min(0.5 * 2^attempt, max_delay)` |
+| 触发条件 | HTTP 408、429、500+ | 不处理用户取消 |
+
+**重试触发判断**：
+
+```python
+def should_retry(status_code: int, retry_after: str | None) -> bool:
+    """判断是否应该重试"""
+    # 显式拒绝
+    if status_code in (400, 401, 403, 404, 422):
+        return False
+    # 服务端错误，可重试
+    if status_code >= 500:
+        return True
+    # 限流，尊重 Retry-After
+    if status_code == 429:
+        return True
+    return False
+```
+
+**共用重试模块设计**：
+
+建议提取为共用模块 `app/core/retry.py`：
+
+```python
+"""
+通用重试装饰器模块
+
+基于指数退避算法，支持 httpx 请求的自动重试。
+"""
+
+import asyncio
+import random
+from functools import wraps
+from typing import TypeVar, ParamSpec
+import httpx
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+P = ParamSpec('P')
+T = TypeVar('T')
+
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_INITIAL_DELAY = 0.5
+DEFAULT_MAX_DELAY = 16.0
+
+
+class RetryConfig:
+    """重试配置"""
+    def __init__(
+        self,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        initial_delay: float = DEFAULT_INITIAL_DELAY,
+        max_delay: float = DEFAULT_MAX_DELAY,
+        retry_on_status: tuple[int, ...] = (429, 500, 502, 503, 504),
+    ):
+        self.max_retries = max_retries
+        self.initial_delay = initial_delay
+        self.max_delay = max_delay
+        self.retry_on_status = retry_on_status
+
+
+def with_retry(config: RetryConfig | None = None):
+    """
+    通用重试装饰器
+
+    使用方式：
+        @with_retry(RetryConfig(max_retries=3))
+        async def call_api():
+            ...
+    """
+    cfg = config or RetryConfig()
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+
+            for attempt in range(cfg.max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code not in cfg.retry_on_status:
+                        raise
+                    last_exception = e
+                    delay = min(cfg.initial_delay * (2 ** attempt), cfg.max_delay)
+                    # 加随机抖动（25%）
+                    delay = delay * (1 + random.random() * 0.25)
+
+                    logger.warning(
+                        f"[RETRY] attempt={attempt + 1}/{cfg.max_retries + 1} | "
+                        f"status={e.response.status_code} | "
+                        f"delay={delay:.2f}s | "
+                        f"func={func.__name__}"
+                    )
+                    if attempt < cfg.max_retries:
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"[RETRY] 全部重试失败 | func={func.__name__}")
+
+                except (asyncio.TimeoutError, httpx.TimeoutException) as e:
+                    last_exception = e
+                    delay = min(cfg.initial_delay * (2 ** attempt), cfg.max_delay)
+                    logger.warning(
+                        f"[RETRY] attempt={attempt + 1}/{cfg.max_retries + 1} | "
+                        f"timeout | delay={delay:.2f}s"
+                    )
+                    if attempt < cfg.max_retries:
+                        await asyncio.sleep(delay)
+
+            # 所有重试都失败，抛出最后一次异常
+            raise last_exception
+
+        return wrapper
+    return decorator
+
+
+# 预定义重试配置
+RETRY_DEFAULT = RetryConfig()
+RETRY_LONG = RetryConfig(max_retries=3, initial_delay=1.0, max_delay=32.0)
+RETRY_QUICK = RetryConfig(max_retries=1, initial_delay=0.25, max_delay=4.0)
+```
+
+**情绪检测中的重试配置**：
+
+```python
+# 情绪检测模型调用
+emotion_retry_config = RetryConfig(
+    max_retries=2,
+    initial_delay=0.5,
+    max_delay=8.0,
+    retry_on_status=(429, 500, 502, 503, 504),
+)
+
+# 文本检测器降级
+text_detector_retry = RetryConfig(
+    max_retries=1,
+    initial_delay=0.25,
+    max_delay=4.0,
+)
+```
+
+**重试与降级的区别**：
+
+| 机制 | 触发条件 | 行为 | 关系 |
+|------|----------|------|------|
+| 重试 | 429/5xx/超时 | 同一模型重试 | 降级前最后一道保障 |
+| 降级 | 重试全部失败 | 切换到备选模型 | 重试失败后的最终保障 |
+
 ---
 
 ## 六、配置设计
@@ -411,7 +570,9 @@ class Settings(BaseSettings):
     )
 ```
 
-### 6.2 Prompt模板位置
+### 6.2 Prompt模板设计
+
+**统一 Prompt 策略**：所有模态（text/audio/image/video）共用同一个任务指令 Prompt，模型自动联合理解。
 
 ```
 app/prompts/emotion/
@@ -419,18 +580,92 @@ app/prompts/emotion/
 ```
 
 ```toml
-[text]
-system = "你是一个情绪分析助手，严格输出JSON。"
-user = "分析这段文本的情绪：{text}\n\n情绪类型：happy/excited/exhausted/sad/frustrated/calm"
+[emotion_analysis]
+system = "你是一个情绪分析助手，擅长从多种输入中准确识别情绪。"
+user = """请分析以下内容的情绪，输出所有可能的情绪及对应的置信度。
 
-[audio]
-system = "你是一个音频情绪分析助手，严格输出JSON。"
-user = "分析这段音频的情绪，输出：{\"text\":\"ASR转写\",\"emotion\":\"情绪类型\",\"intensity\":0.0-1.0}"
+要求：
+1. 情绪类型：happy/excited/exhausted/sad/frustrated/calm
+2. 置信度：0-1之间的浮点数，所有情绪的置信度之和为1
+3. 输出格式为JSON：{"emotions": {"情绪类型": 置信度, ...}}
+4. 如无法确定，默认为 neutral，置信度为0.5
 
-[image]
-system = "你是一个图片情绪分析助手，严格输出JSON。"
-user = "分析图片中人物的情绪，输出：{\"text\":\"图片描述\",\"emotion\":\"情绪类型\",\"intensity\":0.0-1.0}"
+Few-shot 示例：
+输入：今天考试考砸了，心情很低落
+输出：{"emotions": {"sad": 0.6, "exhausted": 0.3, "calm": 0.1}}
+
+输入：收到offer了！太开心了！
+输出：{"emotions": {"happy": 0.7, "excited": 0.3}}
+
+请分析：{input_text}"""
 ```
+
+**Prompt 约束说明**：
+- 情绪类型固定为 6 种，便于归一化处理
+- 要求输出 JSON 并给出 few-shot 示例，稳定输出格式
+- 降级兜底：无法确定时默认 `neutral, 0.5`
+
+### 6.3 JSON 解析降级策略
+
+模型输出可能因格式偏差导致解析失败，需完备的降级提取策略：
+
+```python
+async def parse_emotion_response(raw_output: str) -> dict[str, float]:
+    """
+    JSON 解析降级策略
+    """
+    try:
+        # 1. 直接解析
+        data = json.loads(raw_output)
+        if "emotions" in data:
+            return data["emotions"]
+        if "emotion" in data and "confidence" in data:
+            return {data["emotion"]: data["confidence"]}
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        # 2. 尝试提取 JSON 代码块
+        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_output, re.DOTALL)
+        if match:
+            data = json.loads(match.group(1))
+            if "emotions" in data:
+                return data["emotions"]
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    try:
+        # 3. 穷举式 key 提取
+        patterns = [
+            r'"(\w+)":\s*([\d.]+)',           # "happy": 0.7
+            r'(\w+)\s*[:：]\s*([\d.]+)',       # happy: 0.7
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, raw_output)
+            if matches:
+                result = {}
+                for emotion, score in matches:
+                    if emotion in EMOTION_TYPES:
+                        result[emotion] = float(score)
+                if result:
+                    # 归一化
+                    total = sum(result.values())
+                    return {k: v/total for k, v in result.items()}
+    except Exception:
+        pass
+
+    # 4. 降级兜底：返回默认情绪
+    logger.warning(f"JSON解析全部失败，降级为默认情绪 | raw={raw_output[:100]}")
+    return {"neutral": 1.0}
+
+EMOTION_TYPES = {"happy", "excited", "exhausted", "sad", "frustrated", "calm", "neutral"}
+```
+
+**降级层级**：
+1. 直接解析 JSON
+2. 提取 JSON 代码块
+3. 穷举式正则 key 提取
+4. 降级兜底返回 `{"neutral": 1.0}`
 
 ---
 
@@ -514,6 +749,14 @@ curl https://ark.cn-beijing.volces.com/api/v3/chat/completions \
 
 ### 9.2 参考资料
 
+**架构设计参考**：
 - [火山引擎 ARK API 文档](https://www.volcengine.com/docs/82379/1494384)
 - 现有 `app/prompts/templates.py` - Prompt管理参考
 - 现有 `app/config.py` - 配置管理参考
+
+**重试机制参考**：
+- [OpenAI Python SDK 源码 - 重试逻辑](https://github.com/openai/openai-python/blob/main/src/openai/_base_client.py)
+- [httpx Timeout 文档](https://www.python-httpx.org/advanced/timeout/)
+- [Python tenacity 库](https://github.com/jd/tenacity) - 通用重试库
+- [LangChain 超时配置](https://python.langchain.com/docs/concepts/chat_models/#timeout)
+- [Dify LLM 节点超时](https://docs.dify.ai/guides/workflow/node/llm)
