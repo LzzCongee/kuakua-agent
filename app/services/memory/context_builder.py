@@ -52,7 +52,7 @@ class MemoryContext(BaseModel):
 
         if self.recent_messages:
             msg_parts: list[str] = []
-            for m in self.recent_messages[-3:]:
+            for m in self.recent_messages[-6:]:  # 最近3轮对话（每轮2条：用户+AI）
                 role = "用户" if m.get("role") == "user" else "夸夸"
                 content = str(m.get("content", ""))[:50]
                 msg_parts.append(f"{role}：{content}")
