@@ -54,10 +54,9 @@ COPY --from=builder /install/deps /usr/local
 RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
 
-# 复制应用代码
+# 复制应用代码（最常变动，放最后，不影响依赖缓存层）
 COPY app/ ./app/
 
-# 将应用目录归属给非 root 用户
 RUN chown -R appuser:appuser /app
 
 # 切换到非 root 用户

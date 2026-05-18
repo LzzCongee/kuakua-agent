@@ -498,6 +498,16 @@
                 </div>
                 <div class="image-preview-container" id="imagePreviewContainer"></div>
             </div>
+            <div class="form-group">
+                <label>语音输入（可选）</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button onclick="toggleAudioRecording()" id="audioBtn" style="background: #e91e63;">
+                        🎤 录音
+                    </button>
+                    <span id="audioStatus" style="font-size: 13px; color: #888;"></span>
+                </div>
+                <input type="hidden" id="audioData" value="">
+            </div>
             <div class="row">
                 <div class="col">
                     <button onclick="sendChat()" id="sendBtn">发送消息</button>
@@ -763,7 +773,70 @@
             pendingImages = [];
             renderImagePreviews();
         }
-        
+
+        // ========== 音频录制 ==========
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+
+        function toggleAudioRecording() {
+            if (isRecording) {
+                stopAudioRecording();
+            } else {
+                startAudioRecording();
+            }
+        }
+
+        async function startAudioRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) {
+                        audioChunks.push(e.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        document.getElementById('audioData').value = e.target.result;
+                        document.getElementById('audioStatus').textContent = '录音完成';
+                    };
+                    reader.readAsDataURL(audioBlob);
+
+                    // 停止所有 track
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('audioBtn').textContent = '⏹ 停止';
+                document.getElementById('audioBtn').style.background = '#f44336';
+                document.getElementById('audioStatus').textContent = '录音中...';
+            } catch (e) {
+                alert('无法访问麦克风: ' + e.message);
+            }
+        }
+
+        function stopAudioRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById('audioBtn').textContent = '🎤 录音';
+                document.getElementById('audioBtn').style.background = '#e91e63';
+            }
+        }
+
+        function clearAudio() {
+            document.getElementById('audioData').value = '';
+            document.getElementById('audioStatus').textContent = '';
+            audioChunks = [];
+        }
+
         function getUserId() {
             return document.getElementById('userId').value || 'anonymous';
         }
@@ -877,10 +950,12 @@
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
+            const hasAudio = document.getElementById('audioData').value.length > 0;
+            const audioData = hasAudio ? document.getElementById('audioData').value : null;
             const debug = isDebugMode();
 
-            if (!text && !hasImage) {
-                alert('请输入内容或上传图片');
+            if (!text && !hasImage && !hasAudio) {
+                alert('请输入内容、上传图片或录音');
                 return;
             }
 
@@ -888,10 +963,11 @@
             const btn = document.getElementById('sendBtn');
             btn.innerHTML = '<span class="loading"></span>发送中...';
 
-            // 构建请求体：图片取第一张
+            // 构建请求体：图片取第一张，音频如果有就附带
             const body = { scene };
             if (text) body.text = text;
             if (hasImage) body.image = pendingImages[0];
+            if (hasAudio) body.audio = audioData;
 
             try {
                 let url = `${API_BASE}/api/chat?session_id=${sessionId}`;
@@ -918,6 +994,7 @@
                     appendMessage('assistant', data.data.content);
                     document.getElementById('chatInput').value = '';
                     clearImages();
+                    clearAudio();
                 } else {
                     // 调试模式下如果有部分内容，不弹 alert
                     if (debug && data.data && data.data.debug) {
@@ -941,19 +1018,22 @@
             const text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
+            const hasAudio = document.getElementById('audioData').value.length > 0;
+            const audioData = hasAudio ? document.getElementById('audioData').value : null;
             const debug = isDebugMode();
 
-            if (!text && !hasImage) {
-                alert('请输入内容或上传图片');
+            if (!text && !hasImage && !hasAudio) {
+                alert('请输入内容、上传图片或录音');
                 return;
             }
 
-            appendMessage('user', text || '', hasImage);
+            appendMessage('user', text || (hasAudio ? '[语音输入]' : ''), hasImage);
             appendMessage('assistant', '...');
 
             const body = { scene };
             if (text) body.text = text;
             if (hasImage) body.image = pendingImages[0];
+            if (hasAudio) body.audio = audioData;
 
             // 创建 AbortController 用于停止请求
             currentAbortController = new AbortController();
@@ -1012,6 +1092,7 @@
                     }
                 }
                 clearImages();
+                clearAudio();
                 // 渲染调试面板
                 if (debug && debugData) {
                     renderDebugPanel(debugData);

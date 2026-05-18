@@ -399,6 +399,54 @@ class MemoryService:
         logger.debug(f"偏好场景更新 | user_id={user_id} | scene={scene}")
         return profile
 
+    async def append_emotion_history(self, user_id: str, emotion: str) -> tuple[bool, str | None]:
+        """
+        追加情绪到用户情绪历史，并检查是否形成稳定偏好
+
+        当同一情绪连续出现 3+ 次时，认为形成稳定偏好。
+        只保留最近 5 次情绪记录。
+
+        Args:
+            user_id: 用户ID
+            emotion: 情绪类型 (happy/excited/exhausted/sad/frustrated/calm)
+
+        Returns:
+            tuple: (has_stable_preference, stable_emotion)
+                - has_stable_preference: 是否有稳定情绪偏好
+                - stable_emotion: 稳定偏好情绪类型（如果形成），否则 None
+        """
+        profile = await self.get_or_create_profile(user_id)
+
+        # 解析现有情绪历史
+        history: list[str] = []
+        if profile.emotion_history:
+            try:
+                history = json.loads(profile.emotion_history)
+            except (json.JSONDecodeError, TypeError):
+                history = []
+
+        # 追加新情绪（忽略 neutral）
+        if emotion and emotion != "neutral":
+            history.append(emotion)
+
+        # 只保留最近 5 次
+        if len(history) > 5:
+            history = history[-5:]
+
+        # 保存回数据库
+        profile.emotion_history = json.dumps(history, ensure_ascii=False)
+        await self.session.flush()
+
+        logger.debug(f"情绪历史更新 | user_id={user_id} | history={history} | latest={emotion}")
+
+        # 检查是否形成稳定偏好：最近 3 次情绪都相同
+        if len(history) >= 3 and len(set(history[-3:])) == 1:
+            stable = history[-1]
+            logger.info(f"情绪偏好稳定 | user_id={user_id} | emotion={stable} | history={history}")
+            return True, stable
+
+        return False, None
+
     # ==================== 高光里程碑记忆 ====================
 
     async def get_milestones(self, user_id: str, limit: int = 10) -> list[Milestone]:
@@ -482,7 +530,7 @@ class MemoryService:
 
     async def _get_semantic_memories(self, user_id: str, current_query: str = "") -> list[str]:
         """
-        基于用户画像 + 当前查询构建语义搜索，通过 MCP 调用 search_memory
+        基于用户当前输入 + 画像标签进行语义搜索，通过 MCP 调用 search_memory
 
         Args:
             user_id: 用户ID
@@ -491,50 +539,60 @@ class MemoryService:
         Returns:
             List[str]: 语义相关记忆列表
         """
-        profile = await self.get_user_profile(user_id)
-        if not profile:
-            logger.debug("语义记忆查询跳过 | 无用户偏好")
+        # 如果没有用户输入，则跳过搜索
+        if not current_query or not current_query.strip():
+            logger.debug("语义记忆查询跳过 | 无用户输入")
             return []
 
-        # 构建语义查询：当前用户输入优先，结合画像元数据补充
-        query_parts: list[str] = []
-        if current_query and current_query.strip():
-            query_parts.append(current_query.strip())
-        if profile.user_tags:
+        # 获取用户画像（用于结果 rerank，不作为搜索前提）
+        profile = await self.get_user_profile(user_id)
+        user_tags: list[str] = []
+        if profile and profile.user_tags:
             try:
-                tags = json.loads(profile.user_tags)
-                query_parts.extend(tags[:3])
+                user_tags = json.loads(profile.user_tags)
             except json.JSONDecodeError:
                 pass
-        if profile.prefer_scene:
-            query_parts.append(profile.prefer_scene)
-        if profile.last_emotion:
-            query_parts.append(profile.last_emotion)
 
-        if not query_parts:
-            logger.debug("语义记忆查询跳过 | 无查询关键词")
-            return []
-
-        query = " ".join(query_parts)
-        logger.debug(f"语义记忆查询 | user_id={user_id} | query='{query}'")
+        # 构建语义查询：仅用用户当前输入，不拼接 tags（避免语义偏移）
+        query = current_query.strip()
+        logger.debug(f"语义记忆查询 | user_id={user_id} | query='{query}' | tags={user_tags}")
 
         # 通过 MCP SDK 调用 search_memory 工具
         result = await self.mcp.call(
             "search_memory",
             query=query,
             user_id=user_id,
-            top_k=3,
+            top_k=5,  # 多取一些，用于后续 rerank
         )
 
         if not result:
             logger.debug("语义记忆查询无结果 | MCP 返回 null（降级/失败）")
             return []
 
-        memories = [item.get("memory", "") or item.get("content", "") for item in result.get("results", [])]
-        logger.debug(f"语义记忆查询完成 | count={len(memories)} | raw_result_keys={list(result.keys())}")
+        raw_results = result.get("results", [])
+        if not raw_results:
+            return []
+
+        # DEBUG: 打印完整 result 结构以便分析
+        logger.info(f"[DEBUG] search_memory raw result: {result}")
+
+        # 按用户标签做结果 rerank（标签匹配度高的排前面）
+        if user_tags:
+            scored = []
+            for item in raw_results:
+                content = item.get("memory", "") or item.get("content", "")
+                item_tags: list[str] = item.get("tags", [])
+                matched = sum(1 for tag in user_tags if tag in content or tag in item_tags)
+                scored.append((content, matched))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            memories = [s[0] for s in scored]
+        else:
+            memories = [item.get("memory", "") or item.get("content", "") for item in raw_results]
+
+        logger.debug(f"语义记忆查询完成 | count={len(memories)}")
         for i, mem in enumerate(memories):
             logger.debug(f"语义记忆[{i}] | content={mem[:100]}")
-        return memories
+        return memories[:3]
 
     async def save_chat_to_supermemory(
         self,
@@ -642,7 +700,7 @@ class MemoryService:
             prefer_style=prefer_style,
             user_tags=user_tags,
             avoid_words=avoid_words,
-            recent_messages=recent_messages[-3:] if recent_messages else [],
+            recent_messages=recent_messages[-6:] if recent_messages else [],
             milestones=milestone_contents,
             last_emotion=last_emotion,
             semantic_memories=semantic_memories,
@@ -672,7 +730,7 @@ class MemoryService:
         if memory.recent_messages:
             msg_str = "; ".join([
                 f"{m.get('role', 'user')}: {m.get('content', '')[:50]}"
-                for m in memory.recent_messages[-3:]
+                for m in memory.recent_messages[-6:]
             ])
             parts.append(f"最近对话：{msg_str}")
         

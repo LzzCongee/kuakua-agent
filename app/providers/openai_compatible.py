@@ -9,12 +9,16 @@ OpenAI 兼容 AI Provider 实现
 - 任何 OpenAI 兼容的第三方服务
 """
 
+import logging
+
 from typing import TYPE_CHECKING, AsyncGenerator, Optional  # noqa: UP035
 
 import httpx
 from openai import APIError, AsyncOpenAI, AuthenticationError, RateLimitError
 
 from .base import AIProviderException, BaseAIProvider
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..config import ModelConfig
@@ -160,9 +164,13 @@ class OpenAICompatibleProvider(BaseAIProvider):
                 stream=True,
             )
 
+            chunk_count = 0
             async for chunk in response:
+                logger.debug(f"Stream chunk received | chunk.choices={chunk.choices}")
                 if chunk.choices and chunk.choices[0].delta.content:
+                    chunk_count += 1
                     yield chunk.choices[0].delta.content
+            logger.info(f"Stream completed | total_chunks={chunk_count}")
 
         except Exception as e:
             raise self._handle_api_error(e)

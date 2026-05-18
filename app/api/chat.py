@@ -16,10 +16,11 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -41,6 +42,7 @@ from ..prompts.templates import get_chat_prompt
 from ..providers.openai_compatible import OpenAICompatibleProvider
 from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
+from ..services.emotion.middleware import detect_emotion_from_request
 from ..services.memory_extractor import MemoryExtractor
 from ..services.memory_service import MemoryService
 from ..services.prompt_service import PromptService
@@ -51,6 +53,28 @@ logger = get_logger(__name__)
 
 # 创建路由实例
 router: APIRouter = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
+
+
+# ---------- 数据结构 ----------
+
+
+@dataclass
+class ChatPrepareResult:
+    """夸夸请求准备结果，供 chat 和 chat_stream 共同使用"""
+
+    has_text: bool
+    has_image: bool
+    has_audio: bool
+    input_type: Literal["mixed", "image_only", "text_only"]
+    emotion_context: Any  # EmotionContext | None
+    system_prompt: str
+    prompt_source: str | None
+    memory_summary: MemorySummary | None
+    debug_info: ChatDebugInfo | None
+    tracker: MCPTracker | None
+
+
+# ---------- MCP 追踪器 ----------
 
 
 class MCPTracker:
@@ -94,6 +118,7 @@ class MCPTracker:
         })
         return result
 
+
 # ---------- 依赖注入类型别名 ----------
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -111,9 +136,138 @@ def get_chat_service() -> ChatService:
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 
 
+# ---------- 核心逻辑函数 ----------
+
+
+async def _prepare_chat_request(
+    chat_request: ChatRequest,
+    request: Request,
+    user_id: str,
+    session_id: str,
+    session: AsyncSession,
+    debug: bool,
+) -> ChatPrepareResult | None:
+    """
+    准备夸夸请求的公共逻辑
+
+    解析输入类型、检测情绪、获取 prompt 和记忆、构建 system_prompt。
+    仅处理 audio-only 的情况返回 None。
+
+    Args:
+        chat_request: ChatRequest 请求体
+        request: FastAPI Request 对象（用于获取 .state）
+        user_id: 用户ID
+        session_id: 会话ID
+        session: 数据库会话
+        debug: 是否调试模式
+
+    Returns:
+        ChatPrepareResult 或 None（audio-only 无文本时返回 None）
+    """
+    # 判断输入类型
+    has_text = bool(chat_request.text and chat_request.text.strip())
+    has_image = bool(chat_request.image and chat_request.image.strip())
+    has_audio = bool(chat_request.audio and chat_request.audio.strip())
+
+    if not session_id:
+        session_id = f"session_{user_id}"
+
+    # 情绪检测（优先从中间件获取，fallback 到手动检测）
+    emotion_context = getattr(request.state, "emotion_context", None)
+    if emotion_context is None:
+        emotion_context = await detect_emotion_from_request(
+            request,
+            text=chat_request.text,
+            audio=chat_request.audio if has_audio else None,
+        )
+        logger.debug(f"情绪检测 | primary={emotion_context.primary_emotion}")
+    else:
+        logger.debug(
+            f"中间件情绪检测完成 | primary={emotion_context.primary_emotion} | "
+            f"text={emotion_context.text_emotion} | "
+            f"audio={emotion_context.audio_emotion}"
+        )
+
+    # 判断输入类型（前端 ASR 完成后，audio 字段应为空，只有 text）
+    if has_text and has_image:
+        input_type: Literal["mixed", "image_only", "text_only"] = "mixed"
+    elif has_image:
+        input_type = "image_only"
+    elif has_text:
+        input_type = "text_only"
+    else:
+        # 只有音频的情况（前端 ASR 失败或未做）
+        logger.warning(
+            f"无文字输入，仅有音频 | user_id={user_id} | has_audio={has_audio}"
+        )
+        return None
+
+    # 获取 system prompt（优先从 AB 测试或数据库）
+    prompt_override = await _try_get_ab_test_prompt(
+        chat_request.scene, user_id, session
+    )
+    prompt_source = "ab_test" if prompt_override else None
+
+    # 调试模式：提前创建 MCPTracker
+    tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
+
+    # 获取用户记忆汇总
+    memory_summary = await _get_user_memory(
+        user_id, session_id, session, chat_request.text or "", mcp=tracker
+    )
+
+    # 构建 system prompt
+    if prompt_override:
+        system_prompt = prompt_override["system"]
+    else:
+        db_prompt = await _try_get_db_prompt(chat_request.scene, input_type, session)
+        if db_prompt:
+            system_prompt = db_prompt["system"]
+            prompt_source = prompt_source or "db"
+        else:
+            prompt_template = get_chat_prompt(input_type)
+            system_prompt = prompt_template["system"]
+            prompt_source = prompt_source or "template"
+
+    # 注入记忆上下文
+    if memory_summary:
+        system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
+
+    # 调试模式：构建调试信息
+    debug_info: ChatDebugInfo | None = None
+    if debug:
+        user_message = chat_request.text or ""
+        if has_image:
+            user_message += " [含图片输入]"
+        debug_info = ChatDebugInfo(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            prompt_source=prompt_source or "template",
+            input_type=input_type,
+            memory_summary=memory_summary.model_dump() if memory_summary else None,
+            mcp_connected=mcp_client.is_connected,
+            mcp_calls=[],
+            extraction=None,
+        )
+
+    return ChatPrepareResult(
+        has_text=has_text,
+        has_image=has_image,
+        has_audio=has_audio,
+        input_type=input_type,
+        emotion_context=emotion_context,
+        system_prompt=system_prompt,
+        prompt_source=prompt_source,
+        memory_summary=memory_summary,
+        debug_info=debug_info,
+        tracker=tracker,
+    )
+
+
 @router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     service: ChatServiceDep,
     session: SessionDep,
     user_id: HeaderUserID,
@@ -130,112 +284,68 @@ async def chat(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
-    logger.info(f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
-    logger.debug(f"用户输入详情 | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
+    logger.info(
+        f"收到夸夸请求 | user_id={user_id} | session_id={session_id} | "
+        f"scene={chat_request.scene}"
+    )
+    logger.debug(
+        f"用户输入详情 | user_id={user_id} | "
+        f"text={chat_request.text[:100] if chat_request.text else 'None'} | "
+        f"has_image={bool(chat_request.image)} | has_audio={bool(chat_request.audio)}"
+    )
 
     if not session_id:
         session_id = f"session_{user_id}"
 
-    # 判断输入类型
-    has_text = bool(request.text and request.text.strip())
-    has_image = bool(request.image and request.image.strip())
-    if has_text and has_image:
-        input_type = "mixed"
-    elif has_image:
-        input_type = "image_only"
-    else:
-        input_type = "text_only"
-
-    # 尝试从 AB 测试获取 prompt
-    prompt_override = await _try_get_ab_test_prompt(
-        request.scene, user_id, session
+    # 准备请求（公共逻辑）
+    prep = await _prepare_chat_request(
+        chat_request, request, user_id, session_id, session, debug
     )
-    prompt_source = "ab_test" if prompt_override else None
-    logger.debug(f"AB测试结果 | user_id={user_id} | has_override={prompt_override is not None}")
-
-    # 调试模式：提前创建 MCPTracker，跟踪整个请求生命周期的 MCP 调用
-    tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
-
-    # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
-    if memory_summary:
-        logger.debug(f"记忆注入详情 | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
-    else:
-        logger.debug(f"无记忆注入 | user_id={user_id}")
-
-    # 调试模式：捕获最终 system prompt
-    debug_info: ChatDebugInfo | None = None
-    if debug:
-        if prompt_override:
-            system_prompt = prompt_override["system"]
-        else:
-            db_prompt = await _try_get_db_prompt(request.scene, input_type, session)
-            if db_prompt:
-                system_prompt = db_prompt["system"]
-                prompt_source = prompt_source or "db"
-            else:
-                prompt_template = get_chat_prompt(input_type)
-                system_prompt = prompt_template["system"]
-                prompt_source = prompt_source or "template"
-
-        if memory_summary:
-            system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
-
-        user_message = request.text or ""
-        if has_image:
-            user_message += " [含图片输入]"
-
-        debug_info = ChatDebugInfo(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            prompt_source=prompt_source or "template",
-            input_type=input_type,
-            memory_summary=memory_summary.model_dump() if memory_summary else None,
-            mcp_connected=mcp_client.is_connected,
-            mcp_calls=[],
-            extraction=None,
+    if prep is None:
+        return ApiResponse(
+            code=400,
+            message="语音识别失败，请使用文字输入或确保小程序语音识别已启用",
+            data=None,
         )
 
     try:
         response = await service.chat(
-            request,
-            prompt_override=prompt_override,
-            memory_summary=memory_summary
+            chat_request,
+            prompt_override=None,  # 已在 _prepare_chat_request 中注入
+            memory_summary=prep.memory_summary,
         )
     except Exception as e:
-        if debug and debug_info:
-            # 调试模式下，即使 AI 调用失败也返回已收集的调试信息
+        if debug and prep.debug_info:
             logger.warning(f"AI调用失败(调试模式) | user_id={user_id} | error={e}")
             error_response = ChatResponse(
                 content=f"[AI 调用失败] {e}",
-                scene=request.scene,
-                has_image=has_image,
+                scene=chat_request.scene,
+                has_image=prep.has_image,
             )
-            error_response.debug = debug_info
+            error_response.debug = prep.debug_info
             return ApiResponse(code=500, message=str(e), data=error_response)
         raise
 
     if debug:
-        # 调试模式：同步执行后台任务，捕获 MCP 调用和记忆提取结果
-        assert debug_info is not None
+        assert prep.debug_info is not None
         await _update_session_after_chat_with_debug(
-            user_id, session_id, request, response, debug_info, tracker
+            user_id, session_id, chat_request, response, prep.debug_info, prep.tracker
         )
-        response.debug = debug_info
+        response.debug = prep.debug_info
     else:
-        # 更新会话记录（后台任务，不阻塞响应）
-        task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
+        task = asyncio.create_task(
+            _update_session_after_chat_bg(user_id, session_id, chat_request, response)
+        )
         task.add_done_callback(_handle_task_exception)
 
     logger.info(f"夸夸生成完成 | user_id={user_id} | response_length={len(response.content)}")
-    logger.debug(f"AI响应内容 | user_id={user_id} | content={response.content[:200]}")
-
     return ApiResponse(data=response)
 
 
 @router.post("/stream")
 async def chat_stream(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    request: Request,
     service: ChatServiceDep,
     session: SessionDep,
     user_id: HeaderUserID,
@@ -252,79 +362,37 @@ async def chat_stream(
         X-User-ID: 用户标识（必填）
         X-Trace-ID: 请求追踪 ID（可选）
     """
-    logger.info(f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | scene={request.scene}")
-    logger.debug(f"用户输入详情(流式) | user_id={user_id} | text={request.text[:100] if request.text else 'None'} | has_image={bool(request.image)}")
+    logger.info(
+        f"收到夸夸流式请求 | user_id={user_id} | session_id={session_id} | "
+        f"scene={chat_request.scene}"
+    )
+    logger.debug(
+        f"用户输入详情(流式) | user_id={user_id} | "
+        f"text={chat_request.text[:100] if chat_request.text else 'None'} | "
+        f"has_image={bool(chat_request.image)} | has_audio={bool(chat_request.audio)}"
+    )
 
     if not session_id:
         session_id = f"session_{user_id}"
 
-    settings = get_settings()
-
-    # 判断输入类型
-    input_type: Literal["text_only", "image_only", "mixed"]
-    has_text = bool(request.text and request.text.strip())
-    has_image = bool(request.image and request.image.strip())
-
-    if has_text and has_image:
-        input_type = "mixed"
-    elif has_image:
-        input_type = "image_only"
-    else:
-        input_type = "text_only"
-
-    # 获取 system prompt（优先从 AB 测试或数据库）
-    prompt_override = await _try_get_ab_test_prompt(
-        request.scene, user_id, session
+    # 准备请求（公共逻辑）
+    prep = await _prepare_chat_request(
+        chat_request, request, user_id, session_id, session, debug
     )
-    prompt_source = "ab_test" if prompt_override else None
-    logger.debug(f"AB测试结果(流式) | user_id={user_id} | has_override={prompt_override is not None}")
+    if prep is None:
+        # audio-only 无文本，返回 SSE 错误事件
+        async def error_generator() -> AsyncGenerator[dict[str, str], None]:
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"message": "语音识别失败，请使用文字输入或确保小程序语音识别已启用"},
+                    ensure_ascii=False,
+                ),
+            }
 
-    # 调试模式：提前创建 MCPTracker，跟踪整个请求生命周期的 MCP 调用
-    tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
+        return EventSourceResponse(error_generator())
 
-    # 获取用户记忆汇总
-    memory_summary = await _get_user_memory(user_id, session_id, session, request.text or "", mcp=tracker)
-    if memory_summary:
-        logger.debug(f"记忆注入详情(流式) | user_id={user_id} | prefer_scene={memory_summary.prefer_scene} | prefer_style={memory_summary.prefer_style} | tags={memory_summary.user_tags} | emotion={memory_summary.last_emotion} | milestones_count={len(memory_summary.milestones)} | semantic_count={len(memory_summary.semantic_memories)}")
-    else:
-        logger.debug(f"无记忆注入(流式) | user_id={user_id}")
-
-    if prompt_override:
-        system_prompt = prompt_override["system"]
-    else:
-        # 尝试从数据库获取
-        db_prompt = await _try_get_db_prompt(request.scene, input_type, session)
-        if db_prompt:
-            system_prompt = db_prompt["system"]
-            prompt_source = prompt_source or "db"
-        else:
-            # 回退到硬编码模板
-            prompt_template = get_chat_prompt(input_type)
-            system_prompt = prompt_template["system"]
-            prompt_source = prompt_source or "template"
-
-    # 注入记忆上下文
-    if memory_summary:
-        system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
-
-    # 调试模式：构建调试信息
-    debug_info: ChatDebugInfo | None = None
-    if debug:
-        user_message = request.text or ""
-        if has_image:
-            user_message += " [含图片输入]"
-        debug_info = ChatDebugInfo(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            prompt_source=prompt_source or "template",
-            input_type=input_type,
-            memory_summary=memory_summary.model_dump() if memory_summary else None,
-            mcp_connected=mcp_client.is_connected,
-            mcp_calls=[],
-            extraction=None,
-        )
-
-    # 多模态请求的超时秒数（视觉模型较慢，给更多时间）
+    settings = get_settings()
     multimodal_timeout = max(settings.ai_vision.timeout, 60.0)
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
@@ -333,21 +401,33 @@ async def chat_stream(
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
             image_desc = None
-            if has_image:
+            text_input: str = (chat_request.text or "") if prep.has_text else ""
+
+            if prep.has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
-                logger.info(f"多模态流式降级 | user_id={user_id} | input_type={input_type} | timeout={multimodal_timeout}s")
+                logger.info(
+                    f"多模态流式降级 | user_id={user_id} | "
+                    f"input_type={prep.input_type} | timeout={multimodal_timeout}s"
+                )
                 try:
                     async with asyncio.timeout(multimodal_timeout):
                         multimodal_result = await service._generate_multimodal(
-                            system_prompt=system_prompt,
-                            text=request.text if has_text else None,
-                            image=request.image,
+                            system_prompt=prep.system_prompt,
+                            text=text_input,
+                            image=chat_request.image,
                         )
                 except TimeoutError:
-                    logger.warning(f"多模态生成超时 | user_id={user_id} | timeout={multimodal_timeout}s")
+                    logger.warning(
+                        f"多模态生成超时 | user_id={user_id} | timeout={multimodal_timeout}s"
+                    )
                     yield {
                         "event": "error",
-                        "data": json.dumps({"message": f"视觉模型响应超时（{multimodal_timeout}秒），请稍后重试或使用纯文字输入"}, ensure_ascii=False),
+                        "data": json.dumps(
+                            {
+                                "message": f"视觉模型响应超时（{multimodal_timeout}秒），请稍后重试或使用纯文字输入"
+                            },
+                            ensure_ascii=False,
+                        ),
                     }
                     return
 
@@ -359,8 +439,8 @@ async def chat_stream(
                 }
             else:
                 async for chunk in service.provider.generate_stream(
-                    prompt=request.text or "",
-                    system_prompt=system_prompt,
+                    prompt=text_input,
+                    system_prompt=prep.system_prompt,
                     temperature=0.7,
                     max_tokens=150,
                 ):
@@ -370,35 +450,41 @@ async def chat_stream(
                         "data": json.dumps({"content": chunk}, ensure_ascii=False),
                     }
 
-            logger.info(f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}")
-            logger.debug(f"AI响应内容(流式) | user_id={user_id} | content={full_content[:200] if full_content else ''}")
+            logger.info(
+                f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}"
+            )
 
-            response = ChatResponse(content=full_content, scene=request.scene, has_image=has_image, image_desc=image_desc)
+            response = ChatResponse(
+                content=full_content,
+                scene=chat_request.scene,
+                has_image=prep.has_image,
+                image_desc=image_desc,
+            )
 
-            if debug and debug_info:
-                # 调试模式：同步执行后台任务，捕获 MCP 调用和记忆提取
+            if debug and prep.debug_info:
                 await _update_session_after_chat_with_debug(
-                    user_id, session_id, request, response, debug_info, tracker
+                    user_id, session_id, chat_request, response, prep.debug_info, prep.tracker
                 )
                 yield {
                     "event": "debug",
                     "data": json.dumps(
-                        debug_info.model_dump(),
+                        prep.debug_info.model_dump(),
                         ensure_ascii=False,
                         default=str,
                     ),
                 }
             else:
-                task = asyncio.create_task(_update_session_after_chat_bg(user_id, session_id, request, response))
+                task = asyncio.create_task(
+                    _update_session_after_chat_bg(user_id, session_id, chat_request, response)
+                )
                 task.add_done_callback(_handle_task_exception)
 
-            # 发送完成事件（不含 content，避免前端重复追加）
             yield {
                 "event": "done",
                 "data": json.dumps(
                     {
-                        "scene": request.scene,
-                        "has_image": has_image,
+                        "scene": chat_request.scene,
+                        "has_image": prep.has_image,
                         "created_at": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,
@@ -406,12 +492,11 @@ async def chat_stream(
             }
         except Exception as e:
             logger.error(f"流式生成异常 | user_id={user_id} | error={str(e)}")
-            # 调试模式下，即使出错也发送已收集的调试信息
-            if debug and debug_info:
+            if debug and prep.debug_info:
                 yield {
                     "event": "debug",
                     "data": json.dumps(
-                        debug_info.model_dump(),
+                        prep.debug_info.model_dump(),
                         ensure_ascii=False,
                         default=str,
                     ),
@@ -422,6 +507,9 @@ async def chat_stream(
             }
 
     return EventSourceResponse(event_generator())
+
+
+# ---------- 辅助函数 ----------
 
 
 async def _try_get_ab_test_prompt(
@@ -480,7 +568,6 @@ async def _get_user_memory(
             )
         return summary
     except Exception:
-        # 记忆获取失败时降级为无记忆模式，不影响核心夸夸功能
         logger.warning(f"记忆获取降级 | user_id={user_id} | session_id={session_id}", exc_info=True)
         return None
 
@@ -501,7 +588,6 @@ async def _update_session_after_chat(
         logger.debug("会话持久化跳过 | session_id 为空")
         return
 
-    # 生成 trace_id 用于追踪本次请求
     trace_id = str(uuid.uuid4())
     logger.info(f"会话持久化开始 | user_id={user_id} | session_id={session_id} | trace_id={trace_id}")
 
@@ -598,6 +684,28 @@ async def _update_session_after_chat(
                 if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
                     await memory_service.update_user_profile(user_id, profile_update)
                     logger.info(f"用户画像已更新 | user_id={user_id} | emotion={profile_update.last_emotion} | tags={profile_update.user_tags}")
+
+                # 情绪趋势跟踪：追加到情绪历史，检查是否形成稳定偏好
+                current_emotion = extraction_result.emotion if extraction_result else None
+                if current_emotion and current_emotion != "neutral":
+                    has_stable, stable_emotion = await memory_service.append_emotion_history(user_id, current_emotion)
+                    if has_stable:
+                        logger.info(f"情绪偏好稳定，记录到 Supermemory | user_id={user_id} | emotion={stable_emotion}")
+                        try:
+                            await mcp_client.call(
+                                "add_memory",
+                                content=f"用户情绪偏好：{stable_emotion}（根据对话分析得出的稳定情绪倾向）",
+                                user_id=user_id,
+                                metadata={
+                                    "type": "preference",
+                                    "category": "emotion_preference",
+                                    "emotion": stable_emotion,
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                },
+                            )
+                            logger.info(f"Supermemory 情绪偏好记录成功 | user_id={user_id} | emotion={stable_emotion}")
+                        except Exception as e:
+                            logger.warning(f"Supermemory 记录失败（不影响主流程）| user_id={user_id} | error={e}")
             else:
                 logger.debug(f"无文本输入，跳过记忆提取 | user_id={user_id}")
 
@@ -613,7 +721,6 @@ async def _update_session_after_chat(
             )
             logger.debug(f"语义记忆保存完成 | user_id={user_id}")
     except Exception:
-        # 后台任务失败不影响主流程，但必须记录日志
         logger.exception(f"后台更新会话失败 | user_id={user_id} | session_id={session_id} | trace_id={trace_id}")
 
 
@@ -646,7 +753,6 @@ async def _update_session_after_chat_with_debug(
         from ..models.database import get_db
 
         async with get_db() as db_session:
-            # 复用外部传入的 tracker（已包含 search_memory 调用记录）
             memory_service = MemoryService(db_session, tracker)
 
             # 获取或创建会话
@@ -720,6 +826,31 @@ async def _update_session_after_chat_with_debug(
                 if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
                     await memory_service.update_user_profile(user_id, profile_update)
 
+                # 情绪趋势跟踪（调试模式）
+                current_emotion = extraction_result.emotion if extraction_result else None
+                if current_emotion and current_emotion != "neutral":
+                    has_stable, stable_emotion = await memory_service.append_emotion_history(user_id, current_emotion)
+                    debug_info.extraction["emotion_history"] = {
+                        "current": current_emotion,
+                        "has_stable_preference": has_stable,
+                        "stable_emotion": stable_emotion,
+                    }
+                    if has_stable:
+                        try:
+                            await mcp_client.call(
+                                "add_memory",
+                                content=f"用户情绪偏好：{stable_emotion}（根据对话分析得出的稳定情绪倾向）",
+                                user_id=user_id,
+                                metadata={
+                                    "type": "preference",
+                                    "category": "emotion_preference",
+                                    "emotion": stable_emotion,
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(f"Supermemory 记录失败（调试模式）| error={e}")
+
                 debug_info.extraction = {
                     "source": extraction_result.source,
                     "emotion": extraction_result.emotion,
@@ -754,44 +885,41 @@ def _handle_task_exception(task: asyncio.Task[Any]) -> None:
             if exception:
                 logger.error(f"后台任务未捕获异常 | error={exception}")
         except asyncio.InvalidStateError:
-            # 任务尚未完成
             pass
 
 
 def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     """
-    将用户记忆注入到 system prompt（用于流式接口）
-    
+    将用户记忆注入到 system prompt
+
     Args:
         system_prompt: 原始 system prompt
         memory: 用户记忆汇总
-        
+
     Returns:
         str: 注入记忆后的 system prompt
     """
     parts: list[str] = []
-    
+
     # 偏好场景和风格
     if memory.prefer_scene:
         parts.append(f"- 偏好场景：{memory.prefer_scene}")
     if memory.prefer_style:
         parts.append(f"- 喜欢风格：{memory.prefer_style}")
-    
+
     # 用户标签
     if memory.user_tags:
         tags_str = ", ".join(memory.user_tags[:5])
         parts.append(f"- 用户标签：{tags_str}")
-    
+
     # 最近情绪
     if memory.last_emotion:
         parts.append(f"- 当前情绪：{memory.last_emotion}")
-    
+
     # 最近对话（用于保持上下文连贯，按完整轮次拼接）
     if memory.recent_messages:
-        from datetime import datetime
         msg_list: list[str] = []
         msgs = memory.recent_messages
-        # 找最近一条 assistant 消息的位置
         last_assistant_idx = None
         for i in range(len(msgs) - 1, -1, -1):
             if msgs[i].get("role") == "assistant":
@@ -799,7 +927,6 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
                 break
         if last_assistant_idx is not None:
             start = max(0, last_assistant_idx - 1)
-            # 时间戳只取 user 消息的，放在整轮对话开头
             first_msg = msgs[start]
             ts = first_msg.get("timestamp", "")
             time_str = ""
@@ -812,12 +939,11 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
             for idx, msg in enumerate(msgs[start:last_assistant_idx + 1]):
                 role = "用户" if msg.get("role") == "user" else "夸夸"
                 content = (msg.get("content") or "")[:80]
-                # 时间戳只加在第一句前面
                 prefix = time_str if idx == 0 else ""
                 msg_list.append(f"{prefix}{role}：{content}")
         if msg_list:
             parts.append(f"- 最近对话：{' | '.join(msg_list)}")
-    
+
     # 高光里程碑（用于夸得真诚）
     if memory.milestones:
         milestones_str = "; ".join(memory.milestones[:3])
@@ -832,5 +958,5 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
         return system_prompt
 
     memory_block = "\n".join(parts)
-    logger.debug(f"Prompt 记忆注入(流式) | 内容预览: {memory_block[:300]}")
+    logger.debug(f"Prompt 记忆注入 | 内容预览: {memory_block[:300]}")
     return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
