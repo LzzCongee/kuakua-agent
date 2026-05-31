@@ -192,7 +192,7 @@ curl http://localhost:8000/health
 | 接口 | 方法 | 路径 | 说明 |
 |------|------|------|------|
 | 健康检查 | GET | `/health` | 服务状态检查 |
-| 随机夸夸 | GET | `/api/quotes/random` | 获取随机夸夸语录 |
+| 随机夸夸 | GET | `/api/quotes/random` | 获取随机夸夸语录（已废弃，改用 `/api/chat/greeting`） |
 | 场景夸夸 | GET | `/api/quotes/scene` | 获取指定场景的夸夸语录 |
 | 交互式夸夸 | POST | `/api/chat` | 基于文字/图片生成夸赞 |
 | 收藏列表 | GET | `/api/favorites` | 获取用户收藏列表 |
@@ -208,10 +208,11 @@ curl http://localhost:8000/health
 curl -X GET "http://localhost:8000/health"
 ```
 
-#### 2. 获取随机夸夸
+#### 2. 获取主动问候（替代旧版随机夸夸）
 
 ```bash
-curl -X GET "http://localhost:8000/api/quotes/random"
+curl -X GET "http://localhost:8000/api/chat/greeting?last_active_at=$(date +%s)000" \
+  -H "X-User-ID: your-user-id"
 ```
 
 #### 3. 获取场景夸夸

@@ -850,7 +850,7 @@ class MemorySummary(BaseModel):
 |------|------|------|
 | `POST /api/chat` | 生成前增加语义记忆检索 | 回复更关联历史 |
 | `POST /api/chat/stream` | 同上 | 同上 |
-| `GET /api/quotes/random` | 生成前增加语义记忆检索 | 随机夸夸更个性化 |
+| ~~`GET /api/quotes/random`~~ | 已废弃，改用 `GET /api/chat/greeting` | 随机夸夸更个性化 |
 | `GET /api/quotes/scene` | 同上 | 场景夸夸更关联历史 |
 | `POST /api/favorites` | 收藏时同步到 supermemory | 收藏内容可被语义检索 |
 

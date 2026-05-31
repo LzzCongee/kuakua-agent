@@ -161,7 +161,7 @@ https://kuakua-agent-prod-xxx.ap-shanghai.app.tcloudbase.com
 ```
 小程序代码
     ↓ 发起 HTTPS 请求
-wx.request({ url: "https://kuakua-agent-prod-xxx.app.tcloudbase.com/api/quotes/random" })
+wx.request({ url: "https://kuakua-agent-prod-xxx.app.tcloudbase.com/api/chat/greeting?last_active_at=" + lastActiveAt })
     ↓
 微信客户端（自动处理域名安全校验）
     ↓
@@ -227,8 +227,8 @@ const request = (options) => {
 
 // API 方法封装
 const api = {
-  // 获取随机夸夸
-  getRandomQuote: () => request({ url: '/api/quotes/random' }),
+  // 获取主动问候（替代旧版随机夸夸）
+  getGreeting: (lastActiveAt) => request({ url: `/api/chat/greeting?last_active_at=${lastActiveAt}` }),
   
   // 获取场景夸夸
   getSceneQuote: (type) => request({ url: `/api/quotes/scene?type=${type}` }),
@@ -459,8 +459,8 @@ const request = (options) => {
 
 // API 封装
 const api = {
-  // 获取随机夸夸
-  getRandomQuote: () => request({ url: '/api/quotes/random' }),
+  // 获取主动问候（替代旧版随机夸夸）
+  getGreeting: (lastActiveAt) => request({ url: `/api/chat/greeting?last_active_at=${lastActiveAt}` }),
   
   // 获取场景夸夸
   getSceneQuote: (type) => request({ 
@@ -968,9 +968,9 @@ class ApiService {
     });
   }
   
-  // 获取随机夸夸
-  async getRandomQuote() {
-    return this.request('/api/quotes/random');
+  // 获取主动问候（替代旧版随机夸夸）
+  async getGreeting(lastActiveAt) {
+    return this.request('/api/chat/greeting?last_active_at=' + lastActiveAt);
   }
   
   // 获取场景夸夸

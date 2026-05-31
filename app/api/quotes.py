@@ -56,28 +56,25 @@ QuoteServiceDep = Annotated[QuoteService, Depends(get_quote_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 
 
-@router.get("/random", response_model=ApiResponse[QuoteResponse])
+@router.get("/random", response_model=ApiResponse[QuoteResponse], deprecated=True)
 async def get_random_quote(
     service: QuoteServiceDep,
     memory_service: MemoryServiceDep,
     user_id: HeaderUserID = "anonymous",
 ) -> ApiResponse[QuoteResponse]:
     """
-    获取随机夸夸语录
-    
-    生成一条通用的随机夸赞文案，适合日常鼓励使用。
-    支持根据用户历史偏好生成个性化夸夸。
-    
-    请求头：
-        X-User-ID: 用户标识（用于加载用户偏好）
-        X-Trace-ID: 请求追踪 ID（可选）
+    获取随机夸夸语录（已废弃，请改用 GET /api/chat/greeting）
+
+    ⚠️ 此接口已废弃，将在后续版本移除。
+    请迁移至 GET /api/chat/greeting 并在请求中传入 last_active_at 参数。
+    新接口支持基于用户类型和时间间隔的主动问候，体验更优。
     """
-    logger.info(f"获取随机夸夸 | user_id={user_id}")
-    
+    logger.warning(f"已废弃接口被调用（/api/quotes/random）| user_id={user_id}")
+
     quote = await service.get_random_quote(user_id, memory_service)
-    
+
     logger.info(f"随机夸夸生成完成 | user_id={user_id} | scene={quote.scene}")
-    
+
     return ApiResponse(data=quote)
 
 
