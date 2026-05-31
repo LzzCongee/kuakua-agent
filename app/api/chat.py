@@ -239,8 +239,22 @@ async def _prepare_chat_request(
     debug_info: ChatDebugInfo | None = None
     # 使用实际传给模型的文字（ASR 提取的或原始 text）
     actual_text = audio_text or chat_request.text or ""
+
+    # 构建记忆上下文字符串（用于 debug 显示和 user message 组装）
+    memory_context_str = ""
+    if memory_summary:
+        try:
+            from app.services.memory import MemoryContext
+
+            context = MemoryContext.from_memory_summary(memory_summary)
+            memory_context_str = context.to_prompt_string()
+        except Exception:
+            logger.warning("记忆上下文构建失败（调试）", exc_info=True)
+
     if debug:
         user_message = actual_text
+        if memory_context_str:
+            user_message = f"{memory_context_str}\n\n用户说：{actual_text}"
         if has_image:
             user_message += " [含图片输入]"
         if audio_text:
@@ -330,7 +344,7 @@ async def chat(
     try:
         response = await service.chat(
             chat_request,
-            prompt_override=None,  # 已在 _prepare_chat_request 中注入
+            prompt_override={"system": prep.system_prompt, "user": ""},
             memory_summary=prep.memory_summary,
         )
     except Exception as e:
@@ -931,4 +945,3 @@ def _handle_task_exception(task: asyncio.Task[Any]) -> None:
             pass
 
 
-    # (replaced by MemoryContext.to_prompt_string() in user message)

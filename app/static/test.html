@@ -1386,7 +1386,8 @@
             }
 
             appendMessage('user', text, hasImage);
-            appendMessage('assistant', '...');
+            const assistantMsg = appendMessage('assistant', '...');
+            const lastMsg = assistantMsg.querySelector('.content');
 
             const body = { scene };
             if (text) body.text = text;
@@ -1400,7 +1401,6 @@
             let content = '';
             let stopped = false;
             let debugData = null;
-            let lastMsg = document.querySelector('.message.assistant:last-child .content');
 
             try {
                 let url = `${API_BASE}/api/chat/stream?session_id=${sessionId}`;
@@ -1493,6 +1493,7 @@
             div.innerHTML = `<div class="label">${role === 'user' ? '你' : '夸夸 Agent'}${imageTag}</div><div class="content">${content}</div>`;
             container.appendChild(div);
             container.scrollTop = container.scrollHeight;
+            return div;
         }
         
         // ========== 用户偏好 ==========

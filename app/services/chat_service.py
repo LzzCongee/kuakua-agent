@@ -104,7 +104,7 @@ class ChatService:
         # 获取 system prompt（干净，不含记忆上下文）
         if prompt_override:
             system_prompt = prompt_override["system"]
-            logger.debug(f"使用 AB 测试 Prompt | scene={request.scene}")
+            logger.debug(f"使用外部传入 Prompt（AB测试/DB/模板）| scene={request.scene}")
         else:
             prompt_template = get_chat_prompt(input_type)
             system_prompt = prompt_template["system"]
