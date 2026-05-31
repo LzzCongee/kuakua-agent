@@ -5,8 +5,9 @@
 使用 Pydantic 校验确保字段完整性和类型安全。
 """
 
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class SemanticMemory(BaseModel):
@@ -29,7 +30,7 @@ class MemoryContext(BaseModel):
     avoid_words: list[str] = Field(default_factory=list, max_length=10, description="避免词")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
     milestones: list[str] = Field(default_factory=list, max_length=3, description="高光里程碑")
-    recent_messages: list[dict[str, str]] = Field(default_factory=list, max_length=5, description="最近消息")
+    recent_messages: list[dict[str, str]] = Field(default_factory=list, max_length=6, description="最近消息")
     semantic_memories: list[SemanticMemory] = Field(default_factory=list, max_length=3, description="语义记忆")
 
     def to_prompt_string(self) -> str:
@@ -52,7 +53,7 @@ class MemoryContext(BaseModel):
 
         if self.recent_messages:
             msg_parts: list[str] = []
-            for m in self.recent_messages[-6:]:  # 最近3轮对话（每轮2条：用户+AI）
+            for m in self.recent_messages[-6:]:  # 最近6条消息（约3轮对话，每轮用户+AI）
                 role = "用户" if m.get("role") == "user" else "夸夸"
                 content = str(m.get("content", ""))[:50]
                 msg_parts.append(f"{role}：{content}")
