@@ -163,13 +163,13 @@ weight = 0.35
 desc = "调侃式回应（看似吐槽，实则肯定）"
 
 [random_modes.categories.insightful]
-weight = 0.25
-desc = "洞察式反问"
+weight = 0.35
+desc = "洞察式反问（引人思考，自然延续对话）"
 
 [random_modes.categories.meme]
-weight = 0.20
-desc = "梗/段子"
+weight = 0.05
+desc = "梗/段子（低权重，仅当上下文合适时触发）"
 
 [random_modes.categories.ironic_warm]
-weight = 0.20
+weight = 0.25
 desc = "故意反差暖心"

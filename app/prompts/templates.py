@@ -156,6 +156,9 @@ def get_random_mode_prompt(
     """
     生成随机模式的 prompt 模板
 
+    注入 SBI（Situation-Behavior-Impact）框架以保证回复质量，
+    并加入对话钩子（conversation hook）引导用户延续对话。
+
     Args:
         mode_type: 随机模式类型 (witty_teasing/insightful/meme/ironic_warm)
         user_input: 用户输入的文本
@@ -173,18 +176,37 @@ def get_random_mode_prompt(
     personality_data = get_personality(personality)
     tone = personality_data.get("tone", "")
 
-    mode_descs = {
-        "witty_teasing": "用调侃的方式回应，看似吐槽实则夸人",
-        "insightful": "说一句让人愣住的洞察，不是夸但让人想继续聊",
-        "meme": "用当前流行的梗或段子来回应，结合时事",
-        "ironic_warm": "偏不按用户预期的方式回应，出乎意料但暖心",
+    mode_instructions = {
+        "witty_teasing": (
+            "方式：用调侃的方式回应，看似吐槽实则肯定。\n"
+            "结尾：抛一个略带挑衅的问题，让对方忍不住反驳或解释。"
+        ),
+        "insightful": (
+            "方式：说一句让人愣住的洞察，帮用户看到自己没注意到的模式。\n"
+            "结尾：由此引申一个开放式问题，让用户自己想继续说下去。"
+        ),
+        "meme": (
+            "方式：用当前的梗或段子回应，贴合用户说的内容。\n"
+            "结尾：接一个玩梗的邀请，让对话继续。"
+        ),
+        "ironic_warm": (
+            "方式：偏不按用户预期的方式回应，出乎意料但兜底温暖。\n"
+            "结尾：留一句温柔的邀请，降低对方再次开口的门槛。"
+        ),
     }
 
-    desc = mode_descs.get(mode_type, "")
+    instruction = mode_instructions.get(mode_type, mode_instructions["ironic_warm"])
 
     return (
-        f"【模式：随机互动 | 语气：{tone}】\n"
-        f"用户说：{user_input}\n"
-        f"你的回应：{desc}\n"
-        f"要求：30字以内，像朋友私聊，语气自然不刻意。"
+        f"【模式：随机互动 | 人格语气：{tone}】\n"
+        f"用户说：{user_input}\n\n"
+        f"【SBI 框架 —— 先找具体细节，再回应】\n"
+        f"1. 锚定细节：从用户输入中找一个真实可观察的具体点\n"
+        f"2. 识别品质：将细节映射到背后的品质或状态\n"
+        f"3. 按下方方式回应，表达积极影响\n\n"
+        f"{instruction}\n\n"
+        f"【要求】\n"
+        f"- 口语化，像朋友私聊，语气自然不刻意\n"
+        f"- 30字以内\n"
+        f"- 禁止：空洞套话、排比句、鸡汤句式、与他人比较"
     )

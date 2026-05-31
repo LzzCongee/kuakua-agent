@@ -232,6 +232,7 @@ class ChatResponse(BaseModel):
     )
     has_image: bool = Field(default=False, description="是否包含图片输入")
     image_desc: str | None = Field(default=None, description="AI 对图片的简短描述（仅多模态输入时有值）")
+    is_random_mode: bool = Field(default=False, description="是否为随机模式生成的回复（A/B 测试埋点）")
     created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
     debug: Optional[ChatDebugInfo] = Field(default=None, description="调试信息（仅 debug=true 时返回）")
 

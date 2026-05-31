@@ -21,6 +21,18 @@ from ..providers.base import BaseAIProvider
 
 logger = get_logger(__name__)
 
+# 负面情感关键词——检测到这些词时跳过随机模式
+# 用户处于脆弱/负面情绪时，需要情感支持而非意外感
+_NEGATIVE_EMOTION_KEYWORDS: set[str] = {
+    "难过", "伤心", "哭了", "哭", "难受", "郁闷", "焦虑", "崩溃",
+    "失望", "孤独", "寂寞", "委屈", "心累", "无助", "迷茫",
+    "生气", "愤怒", "烦死了", "受不了", "讨厌",
+    "压力大", "累死了", "好累", "疲惫", "失眠", "睡不着",
+    "生病", "病了", "不舒服", "疼",
+    "失败", "被骂", "裁员", "分手", "吵架", "被坑", "被骗",
+    "没意思", "没劲", "算了", "就这样吧",
+}
+
 if TYPE_CHECKING:
     from ..services.memory_service import MemoryService
 
@@ -138,6 +150,7 @@ class ChatService:
                 scene=request.scene,
                 has_image=has_image,
                 image_desc=None,
+                is_random_mode=True,
                 created_at=datetime.now(UTC)
             )
 
@@ -368,6 +381,13 @@ class ChatService:
         else:
             return False
 
+        # 情感状态门控：检测负面情感关键词，脆弱情绪时跳过随机模式
+        text_lower = text.lower()
+        for keyword in _NEGATIVE_EMOTION_KEYWORDS:
+            if keyword in text_lower:
+                logger.debug(f"情感门控拦截随机模式 | keyword={keyword} | text={text[:50]}")
+                return False
+
         # 获取配置
         config = get_random_mode_config()
         if not config.get("enabled", False):
@@ -388,24 +408,24 @@ class ChatService:
 
         distribution = [
             ("witty_teasing", 0.35),
-            ("insightful", 0.25),
-            ("meme", 0.20),
-            ("ironic_warm", 0.20),
+            ("insightful", 0.35),
+            ("meme", 0.05),
+            ("ironic_warm", 0.25),
         ]
 
         if humor_taste == "chill":
             distribution = [
                 ("witty_teasing", 0.15),
-                ("insightful", 0.35),
-                ("meme", 0.20),
-                ("ironic_warm", 0.30),
+                ("insightful", 0.40),
+                ("meme", 0.05),
+                ("ironic_warm", 0.40),
             ]
         elif humor_taste == "teasing":
             distribution = [
                 ("witty_teasing", 0.50),
-                ("insightful", 0.15),
-                ("meme", 0.15),
-                ("ironic_warm", 0.20),
+                ("insightful", 0.20),
+                ("meme", 0.05),
+                ("ironic_warm", 0.25),
             ]
 
         rand = random.random()
@@ -439,24 +459,24 @@ class ChatService:
         # 根据 humor_taste 调整分布
         distribution = [
             ("witty_teasing", 0.35),
-            ("insightful", 0.25),
-            ("meme", 0.20),
-            ("ironic_warm", 0.20),
+            ("insightful", 0.35),
+            ("meme", 0.05),
+            ("ironic_warm", 0.25),
         ]
 
         if humor_taste == "chill":
             distribution = [
                 ("witty_teasing", 0.15),
-                ("insightful", 0.35),
-                ("meme", 0.20),
-                ("ironic_warm", 0.30),
+                ("insightful", 0.40),
+                ("meme", 0.05),
+                ("ironic_warm", 0.40),
             ]
         elif humor_taste == "teasing":
             distribution = [
                 ("witty_teasing", 0.50),
-                ("insightful", 0.15),
-                ("meme", 0.15),
-                ("ironic_warm", 0.20),
+                ("insightful", 0.20),
+                ("meme", 0.05),
+                ("ironic_warm", 0.25),
             ]
 
         # 按权重随机选择
