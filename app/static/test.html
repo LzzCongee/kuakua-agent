@@ -1212,11 +1212,11 @@
         async function sendChat() {
             const userId = getUserId();
             const sessionId = getSessionId();
-            const text = document.getElementById('chatInput').value.trim();
+            let text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
             const hasAudio = document.getElementById('audioData').value.length > 0;
-            const audioData = hasAudio ? document.getElementById('audioData').value : null;
+            let audioData = hasAudio ? document.getElementById('audioData').value : null;
             const debug = isDebugMode();
 
             if (!text && !hasImage && !hasAudio) {
@@ -1228,11 +1228,34 @@
             const btn = document.getElementById('sendBtn');
             btn.innerHTML = '<span class="loading"></span>发送中...';
 
+            // 如果只有音频没有文字，先调用 ASR 获取转写
+            if (!text && hasAudio) {
+                try {
+                    const asrResult = await callAsrApi(audioData, userId, true);
+                    if (asrResult && asrResult.text) {
+                        text = asrResult.text;
+                        document.getElementById('chatInput').value = text;
+                        // 显示转写结果给用户
+                        appendMessage('user', `[语音] ${text}`, hasImage);
+                    } else {
+                        alert('语音识别未返回文字，请使用文字输入');
+                        setGeneratingState(false);
+                        btn.innerHTML = '发送消息';
+                        return;
+                    }
+                } catch (e) {
+                    alert('语音识别失败: ' + e.message);
+                    setGeneratingState(false);
+                    btn.innerHTML = '发送消息';
+                    return;
+                }
+            }
+
             // 构建请求体：图片取第一张，音频如果有就附带
             const body = { scene };
             if (text) body.text = text;
             if (hasImage) body.image = pendingImages[0];
-            if (hasAudio) body.audio = audioData;
+            // 不再发送 audio，因为已经转换为文字
 
             try {
                 let url = `${API_BASE}/api/chat?session_id=${sessionId}`;
@@ -1255,7 +1278,8 @@
                 }
 
                 if (data.code === 0) {
-                    appendMessage('user', text || '', hasImage);
+                    // 文字已通过 ASR 转写显示，不需要再显示
+                    // 只显示 AI 回复
                     appendMessage('assistant', data.data.content);
                     document.getElementById('chatInput').value = '';
                     clearImages();
@@ -1263,7 +1287,6 @@
                 } else {
                     // 调试模式下如果有部分内容，不弹 alert
                     if (debug && data.data && data.data.debug) {
-                        appendMessage('user', text || '', hasImage);
                         appendMessage('assistant', data.data.content || `[错误] ${data.message}`);
                     } else {
                         alert(`错误: ${data.message}`);
@@ -1276,15 +1299,35 @@
                 btn.innerHTML = '发送消息';
             }
         }
+
+        /**
+         * 调用 ASR 接口获取语音转写
+         */
+        async function callAsrApi(audioData, userId, withEmotion = false) {
+            const url = `${API_BASE}/api/asr?with_emotion=${withEmotion}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId
+                },
+                body: JSON.stringify({ audio: audioData })
+            });
+            const data = await res.json();
+            if (data.code === 0 && data.data) {
+                return data.data;
+            }
+            throw new Error(data.message || 'ASR 失败');
+        }
         
         async function sendStream() {
             const userId = getUserId();
             const sessionId = getSessionId();
-            const text = document.getElementById('chatInput').value.trim();
+            let text = document.getElementById('chatInput').value.trim();
             const scene = document.getElementById('scene').value;
             const hasImage = pendingImages.length > 0;
             const hasAudio = document.getElementById('audioData').value.length > 0;
-            const audioData = hasAudio ? document.getElementById('audioData').value : null;
+            let audioData = hasAudio ? document.getElementById('audioData').value : null;
             const debug = isDebugMode();
 
             if (!text && !hasImage && !hasAudio) {
@@ -1292,13 +1335,30 @@
                 return;
             }
 
-            appendMessage('user', text || (hasAudio ? '[语音输入]' : ''), hasImage);
+            // 如果只有音频没有文字，先调用 ASR 获取转写
+            if (!text && hasAudio) {
+                try {
+                    const asrResult = await callAsrApi(audioData, userId, true);
+                    if (asrResult && asrResult.text) {
+                        text = asrResult.text;
+                        document.getElementById('chatInput').value = text;
+                    } else {
+                        alert('语音识别未返回文字，请使用文字输入');
+                        return;
+                    }
+                } catch (e) {
+                    alert('语音识别失败: ' + e.message);
+                    return;
+                }
+            }
+
+            appendMessage('user', text, hasImage);
             appendMessage('assistant', '...');
 
             const body = { scene };
             if (text) body.text = text;
             if (hasImage) body.image = pendingImages[0];
-            if (hasAudio) body.audio = audioData;
+            // 不再发送 audio，因为已经转换为文字
 
             // 创建 AbortController 用于停止请求
             currentAbortController = new AbortController();
