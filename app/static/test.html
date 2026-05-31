@@ -504,6 +504,9 @@
                     <button onclick="toggleAudioRecording()" id="audioBtn" style="background: #e91e63;">
                         🎤 录音
                     </button>
+                    <button onclick="transcribeAudio()" id="transcribeBtn" style="background: #ff9800;">
+                        🔄 转写测试
+                    </button>
                     <span id="audioStatus" style="font-size: 13px; color: #888;"></span>
                 </div>
                 <input type="hidden" id="audioData" value="">
@@ -835,6 +838,60 @@
             document.getElementById('audioData').value = '';
             document.getElementById('audioStatus').textContent = '';
             audioChunks = [];
+        }
+
+        // ========== ASR 转写 ==========
+        function extractBase64FromDataUrl(dataUrl) {
+            // 从 data:audio/mp3;base64,xxxxx 中提取 base64 部分
+            const parts = dataUrl.split(',');
+            return parts.length > 1 ? parts[1] : dataUrl;
+        }
+
+        async function transcribeAudio() {
+            const audioData = document.getElementById('audioData').value;
+            if (!audioData) {
+                alert('请先录音');
+                return;
+            }
+
+            const userId = getUserId();
+            const withEmotion = true; // 测试带情绪的版本
+
+            const btn = document.getElementById('transcribeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>转写中...';
+
+            try {
+                const audioBase64 = extractBase64FromDataUrl(audioData);
+
+                const url = `${API_BASE}/api/asr?format=mp3&with_emotion=${withEmotion}`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ audio: audioBase64 })
+                });
+
+                const data = await res.json();
+
+                if (data.code === 0 && data.data) {
+                    const result = data.data;
+                    let msg = `转写结果: ${result.text}`;
+                    if (result.emotion) {
+                        msg += `\n情绪: ${result.emotion} (置信度: ${result.confidence})`;
+                    }
+                    alert(msg);
+                } else {
+                    alert(`转写失败: ${data.message}`);
+                }
+            } catch (e) {
+                alert(`请求失败: ${e.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🔄 转写测试';
+            }
         }
 
         function getUserId() {

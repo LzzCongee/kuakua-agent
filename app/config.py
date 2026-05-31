@@ -98,6 +98,15 @@ class Settings(BaseSettings):
         description="记忆提取模型配置",
     )
 
+    # ASR 语音识别（复用 AI vision 配置，因为 Doubao-Seed 支持音频输入）
+    ai_asr: ModelConfig = Field(
+        default_factory=lambda: ModelConfig(
+            model="doubao-seed-2-0-mini-260428",
+            timeout=30.0,
+        ),
+        description="ASR 语音识别模型配置",
+    )
+
     # ==================== AI 记忆提取控制参数 ====================
 
     ai_extract_enabled: bool = Field(
