@@ -104,8 +104,25 @@ class MCPTracker:
         if result is None:
             result_summary = "null (降级/失败)"
         elif isinstance(result, dict):
-            keys = list(result.keys())
-            result_summary = f"dict keys={keys}"
+            # 优先展示搜索结果中实际内容，而非仅输出 dict keys
+            if "results" in result and isinstance(result["results"], list):
+                items = result["results"]
+                count = len(items)
+                if count == 0:
+                    result_summary = "results=[] (空)"
+                else:
+                    previews: list[str] = []
+                    for item in items[:3]:
+                        content = item.get("memory", "") or item.get("content", "") or str(item)
+                        previews.append(str(content)[:60])
+                    preview_str = "; ".join(previews)
+                    suffix = "..." if count > 3 else ""
+                    result_summary = f"results[{count}]={preview_str}{suffix}"
+            else:
+                keys = list(result.keys())
+                result_summary = f"dict keys={keys}"
+        elif isinstance(result, list):
+            result_summary = f"list[{len(result)}]"
         else:
             result_summary = str(result)[:100]
 
