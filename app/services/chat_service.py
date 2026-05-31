@@ -510,19 +510,37 @@ class ChatService:
         last_topic: str | None = None,
     ) -> str:
         """
-        根据用户类型和上下文生成主动问候
+        根据用户类型和时间间隔生成主动问候
 
         用户类型决定了问候的语气和内容：
         - new_user: 首次打开，引导式夸夸
-        - low_frequency: >7 天未互动，回归问候
+        - light_return: 5min~24h 再次打开，简单问候
         - medium_frequency: 24h~7d 未互动，日常问候
+        - low_frequency: >7 天未互动，回归问候
         - high_frequency: <24h 不触发
+
+        All greetings must end with an open question to guide user toward sharing.
         """
-        # 构建场景描述
+        # 构建场景描述——所有 prompt 强制要求以问句结尾，引导用户倾诉
         type_prompts = {
-            "new_user": "用户是第一次打开夸夸助手，请发一句温暖的欢迎语，让用户感到被欢迎。要求友好、轻松。",
-            "low_frequency": "用户很久没来了（超过7天），请发一句想念式的回归问候，让用户感到被惦记。",
-            "medium_frequency": "用户上次来是1-7天前，请发一句轻松的日常问候，自然不刻意。",
+            "new_user": (
+                "用户是第一次打开夸夸助手，还完全不知道这个产品能做什么。"
+                "请先简要说明自己的角色和价值（可以听分享、给鼓励、陪聊天），再发一句温暖的欢迎语。"
+                "一定要让用户清楚地知道：这里是一个可以聊开心事、吐露烦恼、或者随便说说话的安全空间。"
+                "以一句简单的开放式问题结尾，让用户有话可说。"
+            ),
+            "light_return": (
+                "用户5分钟到24小时前刚来过，请发一句简单的'回来啦'问候，自然不刻意。"
+                "结尾带一个开放式问题，像朋友看到你回来时随口问一句近况。"
+            ),
+            "medium_frequency": (
+                "用户上次来是1-7天前，请发一句日常问候。"
+                "结尾用一个具体的开放式问题引导用户分享近况。"
+            ),
+            "low_frequency": (
+                "用户很久没来了（超过7天），请发一句想念式的回归问候。"
+                "结尾引导用户分享这段时间的经历，让用户感到被惦记。"
+            ),
         }
         scene_desc = type_prompts.get(user_type, type_prompts["medium_frequency"])
 
@@ -544,13 +562,16 @@ class ChatService:
 
         memory_context = "\n".join(memory_lines) if memory_lines else ""
 
-        system_prompt = "你是一个温暖真诚的朋友。请根据用户情况和记忆信息，发一句简短的主动问候。"
+        system_prompt = "你是一个温暖真诚的朋友。请根据用户情况和记忆信息，发一句简短的主动问候。必须要以问句结尾，自然引导对方分享。"
 
         prompt_parts = [f"用户类型：{user_type}"]
         if memory_context:
             prompt_parts.append(memory_context)
         prompt_parts.append(scene_desc)
-        prompt_parts.append("要求：20字以内，口语化，像朋友发微信。根据用户类型决定是否使用适当的表情符号。")
+        prompt_parts.append(
+            "要求：20字以内，口语化，像朋友发微信。必须以问句结尾——让对方忍不住想接着说下去。"
+            "根据用户类型决定是否使用适当的表情符号。"
+        )
         prompt = "\n".join(prompt_parts)
 
         try:
@@ -560,10 +581,11 @@ class ChatService:
         except Exception as e:
             logger.warning(f"问候生成失败，使用默认回复 | error={e}")
 
-        # 降级默认回复
+        # 降级默认回复（全部以问句结尾，引导用户继续说下去）
         defaults = {
-            "new_user": "欢迎来到夸夸星球～今天有没有什么想和我分享的呀？😊",
-            "low_frequency": "好久不见呀～我一直在这里等你哦✨",
-            "medium_frequency": "今天也想给你一个温暖的抱抱～",
+            "new_user": "嗨～我是夸夸助手，当你开心时可以一起笑，低落时给你打打气，也可以就随便聊聊天。今天想聊点什么？😊",
+            "light_return": "回来啦～刚才在忙什么呢？",
+            "medium_frequency": "今天过得怎么样？有没有什么新鲜事想聊聊？",
+            "low_frequency": "好久不见～最近过得怎么样？我很想知道你过得好不好✨",
         }
         return defaults.get(user_type, "今天想说点什么？我在听～")

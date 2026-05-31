@@ -182,6 +182,7 @@ async def check_greeting(
     session: SessionDep,
     user_id: HeaderUserID,
     session_id: Annotated[str, Query(description="会话ID")] = "",
+    last_active_at: Annotated[float | None, Query(description="上次进入前台时间（Unix毫秒时间戳），由小程序 onShow 时获取")] = None,
 ) -> ApiResponse[GreetingContext]:
     """
     检查是否需要发送主动问候（随机夸夸触发检测）
@@ -189,11 +190,12 @@ async def check_greeting(
     根据用户类型、上次互动时间、对话上下文等判断是否应该发送主动问候，
     并在需要时生成上下文感知的夸夸问候语。
 
-    规则：
-    - 新用户（首次打开）→ 强制发送引导式夸夸
-    - 低频用户（>7天未互动）→ 自动发送回归问候
-    - 中频用户（24h~7天）→ 自动发送日常问候
-    - 高频用户（<24h）→ 不发送，让用户无缝继续
+    时间间隔策略（优先使用客户端 last_active_at）：
+    - < 5分钟 → 不问候（用户正在使用）
+    - 5分钟~24小时 → 轻问候（"回来啦"）
+    - 24小时~7天 → 日常问候 + 引导式问句
+    - > 7天 → 回归问候 + 个性化记忆
+    - 新用户（无历史）→ 强制发送引导式夸夸
     """
     logger.info(f"问候检查 | user_id={user_id}")
 
@@ -221,17 +223,75 @@ async def check_greeting(
             user_id, limit=1, session_id=None
         )
 
-        # 3. 判定用户类型（DB 存储的 datetime 是 offset-naive，需要统一）
+        # 3. 判定用户类型
+        # 优先使用客户端提供的 last_active_at（小程序本地记录的上次打开时间）
+        # 比 DB 中的 last_message_at 更精确（能捕获"静默打开"）
         now = datetime.now(UTC).replace(tzinfo=None)
 
-        if not sessions or ctx.conversation_count == 0:
-            # 新用户：无会话历史或无对话记录
+        if not sessions:
+            # 新用户：无任何会话记录
             ctx.user_type = "new_user"
             ctx.should_greet = True
             ctx.reason = "新用户首次打开，发送引导式夸夸"
-        else:
+        elif last_active_at is not None:
+            # 使用客户端提供的 last_active_at 计算间隔
+            # 将 Unix 毫秒时间戳转为 datetime
+            client_last_active = datetime.fromtimestamp(last_active_at / 1000, tz=UTC).replace(tzinfo=None)
+            ctx.last_interaction = client_last_active
+            delta = now - client_last_active
+            ctx.hours_since_last = delta.total_seconds() / 3600
+
+            # 获取最近消息，检查待回复状态和话题上下文
             last_session = sessions[0]
-            last_active = last_session.last_message_at or profile.last_active if profile else last_session.last_message_at
+            recent_msgs = await memory_service.get_recent_messages(
+                last_session.session_id, limit=3
+            )
+
+            # 检查是否有未回复的 assistant 消息
+            if len(recent_msgs) >= 1:
+                last_msg = recent_msgs[-1]
+                if last_msg.get("role") == "assistant":
+                    ctx.has_pending_greeting = True
+
+            # 提取上次对话的话题
+            for msg in reversed(recent_msgs):
+                if msg.get("role") == "user" and msg.get("content"):
+                    ctx.last_topic = msg["content"][:80]
+                    break
+
+            # 按时间间隔分类
+            if ctx.hours_since_last < 5 / 60:  # < 5分钟
+                ctx.user_type = "high_frequency"
+                ctx.should_greet = False
+                ctx.reason = f"用户{ctx.hours_since_last:.1f}分钟前刚打开过（<5min），不重复问候"
+            elif ctx.hours_since_last < 24:  # 5分钟 ~ 24小时
+                ctx.user_type = "light_return"
+                if ctx.has_pending_greeting:
+                    ctx.should_greet = False
+                    ctx.reason = "已有未回复的问候，不再重复发送"
+                else:
+                    ctx.should_greet = True
+                    ctx.reason = f"用户{ctx.hours_since_last:.1f}小时未互动（5min~24h），发送轻问候"
+            elif ctx.hours_since_last < 168:  # 24小时 ~ 7天
+                ctx.user_type = "medium_frequency"
+                if ctx.has_pending_greeting:
+                    ctx.should_greet = False
+                    ctx.reason = "已有未回复的问候，不再重复发送"
+                else:
+                    ctx.should_greet = True
+                    ctx.reason = f"用户{ctx.hours_since_last:.0f}小时未互动（24h~7天），发送日常问候"
+            else:  # > 7天
+                ctx.user_type = "low_frequency"
+                if ctx.has_pending_greeting:
+                    ctx.should_greet = False
+                    ctx.reason = "已有未回复的问候，不再重复发送"
+                else:
+                    ctx.should_greet = True
+                    ctx.reason = f"用户{ctx.hours_since_last:.0f}小时未互动（>7天），发送回归问候"
+        else:
+            # 无 last_active_at：降级使用 DB 中的 last_message_at
+            last_session = sessions[0]
+            last_active = last_session.last_message_at or (profile.last_active if profile else last_session.last_message_at)
 
             if last_active:
                 ctx.last_interaction = last_active
@@ -243,21 +303,17 @@ async def check_greeting(
                     last_session.session_id, limit=3
                 )
 
-                # 检查是否有未回复的 assistant 消息（待处理问候）
+                # 检查是否有未回复的 assistant 消息
                 if len(recent_msgs) >= 1:
                     last_msg = recent_msgs[-1]
                     if last_msg.get("role") == "assistant":
                         ctx.has_pending_greeting = True
 
-                # 提取上次对话的话题（取最后一条用户消息）
+                # 提取上次对话的话题
                 for msg in reversed(recent_msgs):
                     if msg.get("role") == "user" and msg.get("content"):
                         ctx.last_topic = msg["content"][:80]
                         break
-
-                # 获取里程碑
-                milestones_raw = await memory_service.get_milestones(user_id, limit=2)
-                ctx.milestones = [m.content for m in milestones_raw if m.content]
 
                 # 按时间间隔分类
                 if ctx.hours_since_last > 168:  # >7天
@@ -280,12 +336,28 @@ async def check_greeting(
                     ctx.user_type = "high_frequency"
                     ctx.should_greet = False
                     ctx.reason = f"用户{ctx.hours_since_last:.1f}小时前刚互动过（<24h），不主动打扰"
-
             else:
-                # 有会话但无活跃时间记录
                 ctx.user_type = "new_user"
                 ctx.should_greet = True
                 ctx.reason = "用户有会话记录但无活跃时间，按新用户处理"
+
+        # 获取话题（仅当上述路径未设置时）
+        if ctx.last_topic is None and sessions:
+            last_session = sessions[0]
+            try:
+                recent_msgs = await memory_service.get_recent_messages(
+                    last_session.session_id, limit=3
+                )
+                for msg in reversed(recent_msgs):
+                    if msg.get("role") == "user" and msg.get("content"):
+                        ctx.last_topic = msg["content"][:80]
+                        break
+            except Exception:
+                pass
+
+        # 获取里程碑（所有路径共用）
+        milestones_raw = await memory_service.get_milestones(user_id, limit=2)
+        ctx.milestones = [m.content for m in milestones_raw if m.content]
 
         # 4. 如果需要问候，生成个性化的夸夸问候
         if ctx.should_greet:
