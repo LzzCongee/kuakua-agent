@@ -15,16 +15,15 @@ import base64
 import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, override
 
-from app.providers.openai_compatible import OpenAICompatibleProvider
-
-from .base import ASRException, ASRResult, BaseASRProvider
+from ....providers.openai_compatible import OpenAICompatibleProvider
+from ..base import ASRException, ASRResult, BaseASRProvider
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from app.config import ModelConfig
+    from ....config import ModelConfig
 
 # ASR 转写 Prompt
 TRANSCRIBE_PROMPT = """准确转写这段音频中的文字，严格输出JSON格式，不要任何额外文字：
@@ -50,7 +49,7 @@ class DoubaoASRProvider(BaseASRProvider):
         Args:
             provider: OpenAI 兼容的 AI Provider 实例
         """
-        self.provider = provider
+        self.provider: OpenAICompatibleProvider = provider
 
     @classmethod
     def from_config(cls, config: "ModelConfig") -> "DoubaoASRProvider":
@@ -58,6 +57,7 @@ class DoubaoASRProvider(BaseASRProvider):
         provider = OpenAICompatibleProvider.from_config(config)
         return cls(provider=provider)
 
+    @override
     async def transcribe(
         self,
         audio: bytes,
@@ -79,7 +79,7 @@ class DoubaoASRProvider(BaseASRProvider):
         audio_b64 = base64.b64encode(audio).decode("utf-8")
 
         # 构建消息（兼容 OpenAI Vision API 格式的音频输入）
-        messages = [
+        messages: list[dict[str, object]] = [
             {"role": "system", "content": TRANSCRIBE_PROMPT},
             {"role": "user", "content": [
                 {"type": "input_audio", "input_audio": {"data": audio_b64, "format": format}}
@@ -139,7 +139,7 @@ class DoubaoASRProvider(BaseASRProvider):
 - frustrated: 烦躁、生气
 - calm: 平静、正常"""
 
-        messages = [
+        messages: list[dict[str, object]] = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": [
                 {"type": "input_audio", "input_audio": {"data": audio_b64, "format": format}}
@@ -154,8 +154,9 @@ class DoubaoASRProvider(BaseASRProvider):
             result = self._parse_json_response(response)
             if result:
                 logger.info(
-                    f"Doubao ASR(情绪版) 完成 | text={result.get('text', '')[:30]}..., "
-                    f"emotion={result.get('emotion')}"
+                    "Doubao ASR(情绪版) 完成 | text=%s..., emotion=%s",
+                    result.get("text", "")[:30],
+                    result.get("emotion"),
                 )
                 return ASRResult(
                     text=result.get("text", ""),
@@ -169,19 +170,19 @@ class DoubaoASRProvider(BaseASRProvider):
             logger.error(f"Doubao ASR(情绪版) 异常 | {type(e).__name__}: {e}")
             raise ASRException(f"语音转写失败: {e}", original_error=e) from e
 
-    def _parse_json_response(self, response: str) -> dict | None:
+    def _parse_json_response(self, response: str) -> dict[str, str] | None:
         """解析 JSON 响应"""
         # 尝试提取 JSON 块
         json_match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
         if json_match:
             try:
-                return json.loads(json_match.group())
+                return cast(dict[str, str], json.loads(json_match.group()))
             except json.JSONDecodeError:
                 pass
 
         # 尝试直接解析整个响应
         try:
-            return json.loads(response)
+            return cast(dict[str, str], json.loads(response))
         except json.JSONDecodeError:
             logger.warning(f"JSON 解析失败 | response={response[:100]}...")
             return None

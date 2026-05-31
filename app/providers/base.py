@@ -84,7 +84,7 @@ class BaseAIProvider(ABC):
         ...
     
     @abstractmethod
-    async def generate_multimodal(self, messages: list[dict], model: str | None = None) -> str:
+    async def generate_multimodal(self, messages: list[dict[str, object]], model: str | None = None) -> str:
         """
         调用 AI 模型进行多模态生成（支持文本+图片）
         

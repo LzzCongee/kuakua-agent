@@ -15,9 +15,9 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.core.dependencies import HeaderUserID
-from app.models.schemas import ApiResponse
-from app.services.asr import ASRException, ASRResult, get_asr_provider
+from ..core.dependencies import HeaderUserID
+from ..models.schemas import ApiResponse
+from ..services.asr import ASRException, ASRResult, get_asr_provider
 
 logger = logging.getLogger(__name__)
 

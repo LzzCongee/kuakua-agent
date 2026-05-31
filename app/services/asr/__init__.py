@@ -27,8 +27,7 @@ print(result.text)
 import logging
 from functools import lru_cache
 
-from app.config import get_settings
-
+from ...config import get_settings
 from .base import ASRException, ASRResult, BaseASRProvider
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ def get_asr_provider() -> BaseASRProvider:
     Returns:
         BaseASRProvider: ASR provider 实例
     """
-    from app.services.asr.implementations import DoubaoASRProvider
+    from .implementations import DoubaoASRProvider
 
     settings = get_settings()
     provider_type = getattr(settings, "asr_provider", "doubao")

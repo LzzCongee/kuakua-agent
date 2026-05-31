@@ -200,7 +200,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
 
     async def generate_multimodal(
         self,
-        messages: list[dict],
+        messages: list[dict[str, object]],
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 150
