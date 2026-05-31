@@ -80,39 +80,63 @@ class BaseASRProvider(ABC):
     async def transcribe_from_base64(
         self,
         audio_base64: str,
-        format: str = "mp3",
+        format: str | None = None,
     ) -> ASRResult:
         """
         从 base64 编码的音频转换（便捷方法）
 
         Args:
-            audio_base64: base64 编码的音频字符串
-            format: 音频格式
+            audio_base64: base64 编码的音频字符串或 data URL
+            format: 音频格式（如果传入 data URL 则自动推断）
 
         Returns:
             ASRResult: 转写结果
         """
         import base64
 
-        audio = base64.b64decode(audio_base64)
-        return await self.transcribe(audio, format)
+        # 处理 data URL 格式：data:audio/ogg;base64,xxxxx
+        audio_data = audio_base64
+        audio_format = format or "ogg"
+        if audio_base64.startswith("data:audio/"):
+            remaining = audio_base64[len("data:audio/") :]
+            semi_colon_idx = remaining.find(";")
+            if semi_colon_idx > 0:
+                audio_format = remaining[:semi_colon_idx]
+                audio_data = remaining[semi_colon_idx + 1 :]  # 移除 ";base64," 前缀
+                if audio_data.startswith("base64,"):
+                    audio_data = audio_data[len("base64,") :]
+
+        audio = base64.b64decode(audio_data)
+        return await self.transcribe(audio, audio_format)
 
     async def transcribe_with_emotion_from_base64(
         self,
         audio_base64: str,
-        format: str = "mp3",
+        format: str | None = None,
     ) -> ASRResult:
         """
         从 base64 编码的音频转换，带情绪信息
 
         Args:
-            audio_base64: base64 编码的音频字符串
-            format: 音频格式
+            audio_base64: base64 编码的音频字符串或 data URL
+            format: 音频格式（如果传入 data URL 则自动推断）
 
         Returns:
             ASRResult: 转写结果（含情绪）
         """
         import base64
 
-        audio = base64.b64decode(audio_base64)
-        return await self.transcribe_with_emotion(audio, format)
+        # 处理 data URL 格式：data:audio/ogg;base64,xxxxx
+        audio_data = audio_base64
+        audio_format = format or "ogg"
+        if audio_base64.startswith("data:audio/"):
+            remaining = audio_base64[len("data:audio/") :]
+            semi_colon_idx = remaining.find(";")
+            if semi_colon_idx > 0:
+                audio_format = remaining[:semi_colon_idx]
+                audio_data = remaining[semi_colon_idx + 1 :]
+                if audio_data.startswith("base64,"):
+                    audio_data = audio_data[len("base64,") :]
+
+        audio = base64.b64decode(audio_data)
+        return await self.transcribe_with_emotion(audio, audio_format)

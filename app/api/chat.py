@@ -188,7 +188,13 @@ async def _prepare_chat_request(
             f"audio={emotion_context.audio_emotion}"
         )
 
-    # 判断输入类型（前端 ASR 完成后，audio 字段应为空，只有 text）
+    # 如果有音频情绪检测产生的文字（ASR 提取），使用它作为文字输入
+    audio_text = getattr(emotion_context, "audio_text", None) if emotion_context else None
+    if audio_text and audio_text.strip():
+        logger.info(f"使用 ASR 提取的文字替代空 text | audio_text={audio_text[:50]}...")
+        has_text = True
+
+    # 判断输入类型
     if has_text and has_image:
         input_type: Literal["mixed", "image_only", "text_only"] = "mixed"
     elif has_image:
@@ -196,9 +202,9 @@ async def _prepare_chat_request(
     elif has_text:
         input_type = "text_only"
     else:
-        # 只有音频的情况（前端 ASR 失败或未做）
+        # 只有音频且 ASR 失败的情况
         logger.warning(
-            f"无文字输入，仅有音频 | user_id={user_id} | has_audio={has_audio}"
+            f"无文字输入，仅有音频 | user_id={user_id} | has_audio={has_audio} | audio_text={audio_text}"
         )
         return None
 
@@ -211,9 +217,9 @@ async def _prepare_chat_request(
     # 调试模式：提前创建 MCPTracker
     tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
 
-    # 获取用户记忆汇总
+    # 获取用户记忆汇总（使用 ASR 提取的文字进行语义搜索）
     memory_summary = await _get_user_memory(
-        user_id, session_id, session, chat_request.text or "", mcp=tracker
+        user_id, session_id, session, audio_text or chat_request.text or "", mcp=tracker
     )
 
     # 构建 system prompt
@@ -235,10 +241,14 @@ async def _prepare_chat_request(
 
     # 调试模式：构建调试信息
     debug_info: ChatDebugInfo | None = None
+    # 使用实际传给模型的文字（ASR 提取的或原始 text）
+    actual_text = audio_text or chat_request.text or ""
     if debug:
-        user_message = chat_request.text or ""
+        user_message = actual_text
         if has_image:
             user_message += " [含图片输入]"
+        if audio_text:
+            user_message += " [由 ASR 提取]"
         debug_info = ChatDebugInfo(
             system_prompt=system_prompt,
             user_message=user_message,
@@ -307,6 +317,19 @@ async def chat(
             message="语音识别失败，请使用文字输入或确保小程序语音识别已启用",
             data=None,
         )
+
+    # 如果有 ASR 提取的文字，创建一个修改后的请求副本
+    # 这样 service.chat 就能拿到正确的 text
+    audio_text = getattr(prep.emotion_context, "audio_text", None) if prep.emotion_context else None
+    if audio_text and audio_text.strip() and not chat_request.text:
+        from ..models.schemas import ChatRequest
+        chat_request = ChatRequest(
+            text=audio_text,
+            image=chat_request.image,
+            audio=None,  # 清除 audio，避免重复处理
+            scene=chat_request.scene,
+        )
+        logger.info(f"使用 ASR 文字替代原有请求 | text={audio_text[:50]}...")
 
     try:
         response = await service.chat(
@@ -392,6 +415,18 @@ async def chat_stream(
 
         return EventSourceResponse(error_generator())
 
+    # 如果有 ASR 提取的文字，替换 chat_request.text
+    audio_text = getattr(prep.emotion_context, "audio_text", None) if prep.emotion_context else None
+    if audio_text and audio_text.strip() and not chat_request.text:
+        from ..models.schemas import ChatRequest
+        chat_request = ChatRequest(
+            text=audio_text,
+            image=chat_request.image,
+            audio=None,
+            scene=chat_request.scene,
+        )
+        logger.info(f"流式接口使用 ASR 文字 | text={audio_text[:50]}...")
+
     settings = get_settings()
     multimodal_timeout = max(settings.ai_vision.timeout, 60.0)
 
@@ -401,7 +436,7 @@ async def chat_stream(
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
             image_desc = None
-            text_input: str = (chat_request.text or "") if prep.has_text else ""
+            text_input: str = chat_request.text or ""
 
             if prep.has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield

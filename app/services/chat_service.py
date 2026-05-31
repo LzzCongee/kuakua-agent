@@ -170,20 +170,27 @@ class ChatService:
     async def _generate_text_only(self, system_prompt: str, text: str) -> str:
         """
         纯文字场景生成
-        
+
         将 system prompt 和用户文字组合后调用 provider.generate()
-        
+
         Args:
             system_prompt: 系统提示词
             text: 用户输入的文字
-            
+
         Returns:
             str: AI 生成的文本内容
         """
         # 组合 system prompt 和用户文字
         full_prompt = f"{system_prompt}\n\n用户说：{text}"
         logger.debug(f"调用 provider.generate | prompt_length={len(full_prompt)} | text_length={len(text)}")
-        return await self.provider.generate(full_prompt)
+        content = await self.provider.generate(full_prompt)
+
+        # 如果返回空内容，给一个默认引导
+        if not content or not content.strip():
+            logger.warning(f"AI 返回空内容，使用默认回复 | text={text[:30]}...")
+            return "我是一个夸夸小助手，专注于发现你身上的闪光点~ 你想让我夸你什么呢？"
+
+        return content
     
     async def _generate_multimodal(
         self,

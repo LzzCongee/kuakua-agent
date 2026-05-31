@@ -31,8 +31,7 @@ router: APIRouter = APIRouter(prefix="/api/asr", tags=["语音识别"])
 class ASRRequest(BaseModel):
     """ASR 请求模型"""
 
-    audio: str
-    format: str = "mp3"
+    audio: str  # 支持 base64 或 data:audio/xxx;base64,xxx 格式
 
 
 class ASRResponse(BaseModel):
@@ -69,8 +68,7 @@ async def speech_to_text(
     可选返回情绪信息（需要更多 token，时间稍长）。
 
     请求体：
-        audio: base64 编码的音频字符串
-        format: 音频格式，默认 mp3
+        audio: base64 编码或 data URL 格式的音频字符串（格式自动从 data URL 推断）
 
     查询参数：
         with_emotion: 是否返回情绪信息，默认 False
@@ -80,17 +78,20 @@ async def speech_to_text(
         emotion: 情绪类型（如果 with_emotion=True）
         confidence: 置信度（如果 with_emotion=True）
     """
-    logger.info(f"收到 ASR 请求 | user_id={user_id} | format={request.format} | with_emotion={with_emotion}")
+    logger.info(f"收到 ASR 请求 | user_id={user_id} | with_emotion={with_emotion}")
 
     asr = get_asr_provider()
 
+    # 不再需要手动推断格式，transcribe_from_base64 会自动处理 data URL
+    logger.info(f"收到 ASR 请求 | user_id={user_id} | with_emotion={with_emotion}")
+
     try:
         if with_emotion:
-            # 带情绪的转写
-            result = await asr.transcribe_with_emotion_from_base64(request.audio, format=request.format)
+            # 带情绪的转写（自动处理 data URL）
+            result = await asr.transcribe_with_emotion_from_base64(request.audio)
         else:
-            # 普通转写
-            result = await asr.transcribe_from_base64(request.audio, format=request.format)
+            # 普通转写（自动处理 data URL）
+            result = await asr.transcribe_from_base64(request.audio)
 
         logger.info(f"ASR 完成 | user_id={user_id} | text={result.text[:30]}...")
         return ApiResponse(data=ASRResponse.from_result(result))

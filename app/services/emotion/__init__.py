@@ -8,19 +8,19 @@
 - EmotionContext：情绪上下文，附着在 Request.state 上供 handler 使用
 """
 
+from app.services.emotion.analyzer import (
+    EmotionAnalysisResult,
+    EmotionAnalyzer,
+)
 from app.services.emotion.detector import (
     EmotionDetector,
-    EmotionType,
     EmotionResult,
+    EmotionType,
     emotion_detector,
 )
-from app.services.emotion.analyzer import (
-    EmotionAnalyzer,
-    EmotionAnalysisResult,
-)
 from app.services.emotion.middleware import (
-    EmotionMiddleware,
     EmotionContext,
+    EmotionMiddleware,
     detect_emotion_from_request,
 )
 

@@ -11,19 +11,20 @@ handler 可通过 `request.state.emotion_context` 访问情绪信息。
 
 检测策略：
 - 文本情绪：使用 EmotionDetector（规则引擎，<1ms）
-- 音频情绪：使用 EmotionAnalyzer（LLM，仅当有音频且无文本时启用）
+- 音频情绪：使用 Doubao-Seed ASR（transcribe_with_emotion）
 """
 
 import json
+from typing import TYPE_CHECKING
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ...config import get_settings
 from ...core.logging import get_logger
-from ...providers.openai_compatible import OpenAICompatibleProvider
-from .analyzer import EmotionAnalyzer
 from .detector import emotion_detector
+
+if TYPE_CHECKING:
+    from ...services.asr import BaseASRProvider
 
 logger = get_logger(__name__)
 
@@ -60,20 +61,14 @@ class EmotionContext:
         }
 
 
-def get_emotion_analyzer() -> EmotionAnalyzer:
+def _get_asr_for_emotion() -> "BaseASRProvider":
     """
-    获取 EmotionAnalyzer 实例
+    获取 ASR Provider 实例（用于情绪检测）
 
-    使用 ai_vision 配置（支持多模态）进行音频分析。
-    如果没有配置 vision，则降级使用 ai_chat。
+    使用 AI_ASR 配置（Doubao-Seed）进行音频分析。
     """
-    settings = get_settings()
-    vision_key = settings.ai_vision.api_key
-    if vision_key and vision_key != "CHANGE_ME_IN_PRODUCTION":
-        provider = OpenAICompatibleProvider.from_config(settings.ai_vision)
-    else:
-        provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
-    return EmotionAnalyzer(provider=provider)
+    from ...services.asr import get_asr_provider
+    return get_asr_provider()
 
 
 async def _detect_text_emotion(text: str) -> str | None:
@@ -90,26 +85,26 @@ async def _detect_text_emotion(text: str) -> str | None:
 
 async def _detect_audio_emotion(audio: str) -> tuple[str | None, float, str | None]:
     """
-    检测音频情绪（LLM，有延迟）
+    检测音频情绪（调用 ASR 接口）
 
     Returns:
         tuple[emotion, intensity, audio_text]
     """
-    logger.info(f"检测到纯音频输入，进行 LLM 情绪分析 | audio_length={len(audio)}")
+    logger.info(f"检测到纯音频输入，进行 ASR 情绪分析 | audio_length={len(audio)}")
     try:
-        analyzer = get_emotion_analyzer()
-        audio_result = await analyzer.analyze_audio(audio)
+        asr = _get_asr_for_emotion()
+        result = await asr.transcribe_with_emotion_from_base64(audio)
         logger.info(
-            f"音频情绪检测完成 | emotion={audio_result.emotion} | "
-            f"intensity={audio_result.intensity}"
+            f"ASR 情绪分析完成 | emotion={result.emotion} | "
+            f"confidence={result.confidence} | text={result.text[:30] if result.text else ''}"
         )
         return (
-            audio_result.emotion,
-            audio_result.intensity,
-            audio_result.text if audio_result.text else None,
+            result.emotion,
+            result.confidence if result.confidence is not None else 0.5,
+            result.text if result.text else None,
         )
     except Exception as e:
-        logger.warning(f"音频情绪检测失败，降级为默认情绪 | error={e}")
+        logger.warning(f"ASR 音频情绪检测失败，降级为默认情绪 | error={e}")
         return "calm", 0.5, None
 
 

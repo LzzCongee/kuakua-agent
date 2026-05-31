@@ -500,13 +500,23 @@
             </div>
             <div class="form-group">
                 <label>语音输入（可选）</label>
-                <div style="display: flex; gap: 10px; align-items: center;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <button onclick="toggleAudioRecording()" id="audioBtn" style="background: #e91e63;">
                         🎤 录音
+                    </button>
+                    <button onclick="playAudio()" id="playBtn" style="background: #9c27b0; display: none;">
+                        ▶️ 播放
                     </button>
                     <button onclick="transcribeAudio()" id="transcribeBtn" style="background: #ff9800;">
                         🔄 转写测试
                     </button>
+                    <select id="audioFormat" style="width: auto;">
+                        <option value="mp3" selected>MP3 (推荐)</option>
+                        <option value="wav">WAV</option>
+                        <option value="m4a">M4A</option>
+                        <option value="ogg">OGG</option>
+                        <option value="webm">WEBM</option>
+                    </select>
                     <span id="audioStatus" style="font-size: 13px; color: #888;"></span>
                 </div>
                 <input type="hidden" id="audioData" value="">
@@ -793,7 +803,41 @@
         async function startAudioRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                const selectedFormat = document.getElementById('audioFormat').value;
+                // API 只支持 mp3/wav/m4a 格式，base64 输入不支持 webm/ogg
+                // 优先级：mp3 > wav > m4a > webm > ogg
+
+                // 优先尝试用户选择的格式
+                const userSelectedMime = `audio/${selectedFormat}`;
+                const mimeTypes = [
+                    userSelectedMime,  // 优先用户选择
+                    'audio/wav',       // API 支持，通用性好
+                    'audio/mp4',       // API 支持
+                    'audio/m4a',      // API 支持
+                    'audio/webm',      // API 不支持（错误日志确认）
+                    'audio/ogg',       // API 不支持（错误日志确认）
+                    'audio/webm;codecs=opus',  // 常见降级
+                ];
+
+                // 尝试找到支持的格式
+                let mimeType = '';
+                for (const mt of mimeTypes) {
+                    if (MediaRecorder.isTypeSupported(mt)) {
+                        mimeType = mt;
+                        const isUserSelected = mt === userSelectedMime;
+                        console.log(`录音格式: ${mt} ${isUserSelected ? '(用户选择)' : '(自动降级)'}`);
+                        break;
+                    }
+                }
+
+                // 如果都没找到，使用浏览器默认
+                if (!mimeType) {
+                    console.log('无可用录音格式，使用浏览器默认');
+                }
+
+                const config = mimeType ? { mimeType } : {};
+                mediaRecorder = new MediaRecorder(stream, config);
+                console.log('MediaRecorder 最终 MIME:', mediaRecorder.mimeType || 'browser-default');
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = (e) => {
@@ -803,23 +847,62 @@
                 };
 
                 mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        document.getElementById('audioData').value = e.target.result;
-                        document.getElementById('audioStatus').textContent = '录音完成';
-                    };
-                    reader.readAsDataURL(audioBlob);
+                    // 使用 MediaRecorder 的实际 MIME 类型创建 Blob
+                    const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                    const audioBlob = new Blob(audioChunks, { type: mimeType });
+                    console.log('原始录音 MIME:', mimeType, '大小:', audioBlob.size);
+
+                    // API 只支持 mp3/wav/m4a，需要转换不支持的格式
+                    const needConvert = !['audio/wav', 'audio/mp3', 'audio/mp4', 'audio/m4a'].includes(mimeType);
+                    let dataUrl;
+
+                    if (needConvert) {
+                        console.log('需要转换格式:', mimeType, '-> audio/wav');
+                        try {
+                            dataUrl = await convertToWav(audioBlob);
+                            console.log('转换成功, dataUrl length:', dataUrl.length);
+                        } catch (e) {
+                            console.error('格式转换失败，使用原始格式:', e);
+                            // 转换失败则使用原始格式
+                            const reader = new FileReader();
+                            dataUrl = await new Promise((resolve) => {
+                                reader.onload = (e) => resolve(e.target.result);
+                                reader.readAsDataURL(audioBlob);
+                            });
+                        }
+                    } else {
+                        const reader = new FileReader();
+                        dataUrl = await new Promise((resolve) => {
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.readAsDataURL(audioBlob);
+                        });
+                    }
+
+                    // 验证 data URL 格式
+                    const formatMatch = dataUrl.match(/^data:audio\/([^;]+);base64,/);
+                    const actualFormat = formatMatch ? formatMatch[1] : 'unknown';
+                    console.log('最终音频格式:', actualFormat, 'dataUrl length:', dataUrl.length);
+
+                    if (!formatMatch) {
+                        console.error('Invalid audio data URL - no audio/* prefix');
+                    }
+
+                    document.getElementById('audioData').value = dataUrl;
+                    const displayFormat = formatMatch ? formatMatch[1].toUpperCase() : 'UNKNOWN';
+                    document.getElementById('audioStatus').textContent =
+                        `录音完成 (${displayFormat})`;
+                    document.getElementById('playBtn').style.display = '';
 
                     // 停止所有 track
                     stream.getTracks().forEach(track => track.stop());
                 };
 
-                mediaRecorder.start();
+                mediaRecorder.start(1000);  // 每秒触发 ondataavailable
                 isRecording = true;
                 document.getElementById('audioBtn').textContent = '⏹ 停止';
                 document.getElementById('audioBtn').style.background = '#f44336';
-                document.getElementById('audioStatus').textContent = '录音中...';
+                document.getElementById('audioStatus').textContent = `录音中 (${mediaRecorder.mimeType.split('/')[1].toUpperCase()})...`;
+                document.getElementById('playBtn').style.display = 'none';
             } catch (e) {
                 alert('无法访问麦克风: ' + e.message);
             }
@@ -838,11 +921,135 @@
             document.getElementById('audioData').value = '';
             document.getElementById('audioStatus').textContent = '';
             audioChunks = [];
+            document.getElementById('playBtn').style.display = 'none';
+        }
+
+        function playAudio() {
+            const audioData = document.getElementById('audioData').value;
+            if (!audioData) {
+                alert('没有可播放的音频');
+                return;
+            }
+            const audio = new Audio(audioData);
+            audio.oncanplaythrough = () => {
+                console.log('Audio ready to play fully');
+                audio.play().catch(e => {
+                    console.error('Play failed:', e);
+                    alert('播放失败: ' + e.message);
+                });
+            };
+            audio.onerror = (e) => {
+                console.error('Audio error:', e);
+                alert('音频加载失败，请检查录音是否正常');
+            };
         }
 
         // ========== ASR 转写 ==========
+        /**
+         * 使用 Web Audio API 将音频转换为 WAV 格式
+         * @param {Blob} audioBlob - 原始音频 Blob
+         * @returns {Promise<string>} - WAV 格式的 data URL
+         */
+        async function convertToWav(audioBlob) {
+            return new Promise((resolve, reject) => {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // 解码音频数据（audioBlob.arrayBuffer() 返回 Promise）
+                audioBlob.arrayBuffer()
+                    .then((arrayBuffer) => {
+                        return audioContext.decodeAudioData(arrayBuffer);
+                    })
+                    .then((audioBuffer) => {
+                        console.log('音频解码成功，时长:', audioBuffer.duration, '秒', '采样率:', audioBuffer.sampleRate);
+
+                        // 转换为 WAV 格式
+                        const wavDataUrl = audioBufferToWav(audioBuffer);
+                        audioContext.close();
+                        resolve(wavDataUrl);
+                    })
+                    .catch((e) => {
+                        console.error('音频解码失败:', e);
+                        audioContext.close();
+                        reject(e);
+                    });
+            });
+        }
+
+        /**
+         * 将 AudioBuffer 转换为 WAV 格式的 data URL
+         * @param {AudioBuffer} audioBuffer - 解码后的音频 buffer
+         * @returns {string} - WAV 格式的 data URL
+         */
+        function audioBufferToWav(audioBuffer) {
+            const numChannels = audioBuffer.numberOfChannels || 1;
+            const sampleRate = audioBuffer.sampleRate;
+            const format = 1; // PCM
+            const bitDepth = 16;
+
+            // 获取音频数据
+            let interleaved;
+            if (numChannels === 2) {
+                const left = audioBuffer.getChannelData(0);
+                const right = audioBuffer.getChannelData(1);
+                interleaved = new Float32Array(left.length + right.length);
+                for (let i = 0; i < left.length; i++) {
+                    interleaved[i * 2] = left[i];
+                    interleaved[i * 2 + 1] = right[i];
+                }
+            } else {
+                interleaved = audioBuffer.getChannelData(0);
+            }
+
+            // 创建 WAV 文件
+            const dataLength = interleaved.length * (bitDepth / 8);
+            const buffer = new ArrayBuffer(44 + dataLength);
+            const view = new DataView(buffer);
+
+            // RIFF 头
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataLength, true);
+            writeString(view, 8, 'WAVE');
+
+            // fmt 子 chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); // subchunk1 size
+            view.setUint16(20, format, true); // audio format (1 = PCM)
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true); // byte rate
+            view.setUint16(32, numChannels * (bitDepth / 8), true); // block align
+            view.setUint16(34, bitDepth, true);
+
+            // data 子 chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataLength, true);
+
+            // 写入 PCM 数据
+            const offset = 44;
+            for (let i = 0; i < interleaved.length; i++) {
+                const sample = Math.max(-1, Math.min(1, interleaved[i]));
+                view.setInt16(offset + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+            }
+
+            // 转换为 base64
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+
+            return `data:audio/wav;base64,${base64}`;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
         function extractBase64FromDataUrl(dataUrl) {
-            // 从 data:audio/mp3;base64,xxxxx 中提取 base64 部分
+            // 从 data:audio/ogg;base64,xxxxx 中提取 base64 部分
             const parts = dataUrl.split(',');
             return parts.length > 1 ? parts[1] : dataUrl;
         }
@@ -862,16 +1069,17 @@
             btn.innerHTML = '<span class="loading"></span>转写中...';
 
             try {
-                const audioBase64 = extractBase64FromDataUrl(audioData);
+                // 发送完整 data URL，让 API 自己推断格式
+                const audioData = document.getElementById('audioData').value;
 
-                const url = `${API_BASE}/api/asr?format=mp3&with_emotion=${withEmotion}`;
+                const url = `${API_BASE}/api/asr?with_emotion=${withEmotion}`;
                 const res = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-User-ID': userId
                     },
-                    body: JSON.stringify({ audio: audioBase64 })
+                    body: JSON.stringify({ audio: audioData })
                 });
 
                 const data = await res.json();
