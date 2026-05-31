@@ -437,3 +437,86 @@ async def chat(self, request: ChatRequest, ...) -> ChatResponse:
 | 随机模式触发过于频繁 | 低 | 中 | trigger_probability 可配置，默认为 0.3 |
 | 毒舌人格过度冒犯用户 | 低 | 高 | 限制 witty 人格仅对明确选择的用户启用 |
 | 搞笑回复质量参差 | 中 | 低 | 通过评测反馈持续优化 prompt |
+---
+
+## 六、实施记录（2026-05-31 更新）
+
+### 6.1 已完成代码改动 ✅
+
+| 改动 | 文件 |
+|------|------|
+| templates.toml 增加 [personalities] 和 [random_modes] 配置 | app/prompts/templates.toml |
+| templates.py 增加 get_personality()、get_random_mode_config()、get_random_mode_prompt() | app/prompts/templates.py |
+| MemoryContext 增加 personality_prefer/humor_taste/tone_shift/interaction_count 字段 | app/services/memory/context_builder.py |
+| MemorySummary 增加 personality_prefer/humor_taste/tone_shift 字段 | app/models/schemas.py |
+| chat_service.py 增加 _should_use_random_mode() 和 _generate_random_mode() 方法 | app/services/chat_service.py |
+| chat_service.py 实现人格注入 _inject_personality() 方法 | app/services/chat_service.py |
+| chat_service.py chat() 方法支持人格注入和随机模式触发 | app/services/chat_service.py |
+| api/chat.py _inject_memory_to_prompt() 支持人格注入 | app/api/chat.py |
+| to_prompt_string() 输出人格偏好和幽默偏好信息 | app/services/memory/context_builder.py |
+
+### 6.2 验证状态
+
+- Python 语法验证：通过 ✅
+- Ruff lint 检查：全部通过 ✅（本次修改的文件）
+- 函数导入/调用测试：通过 ✅
+
+---
+
+## 七、Prompt 前缀 Cache 优化
+
+### 7.1 现有结构分析
+
+当前每次请求的 prompt 组装：
+```
+system_prompt = 基础模板（来自 get_chat_prompt(input_type)）
+             + 人格注入（来自 get_personality(personality)，仅非 default 时）
+             + 记忆上下文（来自 MemoryContext.to_prompt_string()）
+```
+
+### 7.2 Cache 优化策略
+
+**问题**：相同人格 + 相同输入类型的请求，可以共享基础 prompt 前缀。
+
+**优化方案**：在 chat_service.py 中增加模块级缓存：
+
+```python
+from functools import lru_cache
+
+# 模块级缓存：input_type + personality -> base_system_prompt
+_BASE_PROMPT_CACHE: dict[tuple[str, str], str] = {}
+
+def _get_cached_base_prompt(input_type: str, personality: str) -> str:
+    """获取带人格的基础 system prompt（可缓存）"""
+    cache_key = (input_type, personality)
+    if cache_key not in _BASE_PROMPT_CACHE:
+        base = get_chat_prompt(input_type)["system"]
+        if personality != "default":
+            personality_data = get_personality(personality)
+            tone = personality_data.get("tone", "")
+            role = personality_data.get("role", "")
+            if role:
+                base = f"{base}\n\n【人格模式：{tone}】\n{role}"
+        _BASE_PROMPT_CACHE[cache_key] = base
+    return _BASE_PROMPT_CACHE[cache_key]
+```
+
+**预期效果**：
+- 减少重复的 prompt 拼接
+- AI 模型更容易识别一致的模式
+- 提升推理缓存命中率（如果有上游 KV 缓存）
+
+---
+
+## 八、待完成
+
+### 8.1 P1 后续任务
+
+- [ ] **AB Test 人格变体验证**：创建 AB 测试，对比 default vs witty vs chill 的留存和对话轮次
+- [ ] PersonalityResolver：从 user_tags 自动推断人格偏好（如有"吐槽"标签自动切换 witty）
+- [ ] 根据使用数据，调整随机模式的 trigger_probability
+
+### 8.2 P2 任务
+
+- [ ] 根据用户反馈，优化各随机模式的 prompt 模板
+- [ ] 完善 AB Test 监控面板，追踪各人格的 NPS 和留存率
