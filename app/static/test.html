@@ -440,6 +440,45 @@
             padding: 10px;
             margin-top: 6px;
         }
+
+        /* 纯 ASR 测试结果区域 */
+        .asr-result-area {
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid #4caf50;
+            border-radius: 6px;
+            background: #f1f8e9;
+            display: none;
+            font-size: 14px;
+        }
+        .asr-result-area.active { display: block; }
+        .asr-result-area .asr-header {
+            font-weight: 600;
+            color: #2e7d32;
+            margin-bottom: 8px;
+        }
+        .asr-result-area .asr-text {
+            font-size: 18px;
+            color: #333;
+            padding: 10px;
+            background: #fff;
+            border-radius: 4px;
+            border-left: 3px solid #4caf50;
+            margin-bottom: 8px;
+            line-height: 1.8;
+        }
+        .asr-result-area .asr-meta {
+            font-size: 12px;
+            color: #888;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .asr-result-area .asr-meta span {
+            background: #e8f5e9;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -510,6 +549,9 @@
                     <button onclick="transcribeAudio()" id="transcribeBtn" style="background: #ff9800;">
                         🔄 转写测试
                     </button>
+                    <button onclick="transcribePureASR()" id="pureAsrBtn" style="background: #4caf50;">
+                        🎯 纯ASR测试
+                    </button>
                     <select id="audioFormat" style="width: auto;">
                         <option value="mp3" selected>MP3 (推荐)</option>
                         <option value="wav">WAV</option>
@@ -520,6 +562,11 @@
                     <span id="audioStatus" style="font-size: 13px; color: #888;"></span>
                 </div>
                 <input type="hidden" id="audioData" value="">
+                <div class="asr-result-area" id="pureAsrResult">
+                    <div class="asr-header">🎯 纯ASR 转写结果</div>
+                    <div class="asr-text" id="pureAsrText"></div>
+                    <div class="asr-meta" id="pureAsrMeta"></div>
+                </div>
             </div>
             <div class="row">
                 <div class="col">
@@ -1132,6 +1179,61 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '🔄 转写测试';
+            }
+        }
+
+        /** 纯 ASR 测试：调用 BigModel Flash 接口，展示转写结果 */
+        async function transcribePureASR() {
+            const audioData = document.getElementById('audioData').value;
+            if (!audioData) {
+                alert('请先录音');
+                return;
+            }
+
+            const userId = getUserId();
+            const btn = document.getElementById('pureAsrBtn');
+            const resultArea = document.getElementById('pureAsrResult');
+            const resultText = document.getElementById('pureAsrText');
+            const resultMeta = document.getElementById('pureAsrMeta');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>纯ASR转写中...';
+            resultArea.classList.remove('active');
+
+            try {
+                const url = `${API_BASE}/api/asr?with_emotion=false`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ audio: audioData })
+                });
+
+                const data = await res.json();
+
+                if (data.code === 0 && data.data) {
+                    const result = data.data;
+                    resultText.textContent = result.text || '(未识别到语音)';
+                    const metaParts = [];
+                    if (result.confidence != null) {
+                        metaParts.push(`置信度: ${(result.confidence * 100).toFixed(1)}%`);
+                    }
+                    resultMeta.innerHTML = metaParts.map(m => `<span>${m}</span>`).join('');
+                    resultArea.classList.add('active');
+                } else {
+                    resultText.textContent = '转写失败';
+                    resultMeta.innerHTML = `<span style="background:#ffebee;color:#c62828;">${data.message || '未知错误'}</span>`;
+                    resultArea.classList.add('active');
+                }
+            } catch (e) {
+                resultText.textContent = '请求失败';
+                resultMeta.innerHTML = `<span style="background:#ffebee;color:#c62828;">${e.message}</span>`;
+                resultArea.classList.add('active');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🎯 纯ASR测试';
             }
         }
 
