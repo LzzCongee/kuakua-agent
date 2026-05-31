@@ -5,8 +5,9 @@
 使用 Pydantic 校验确保字段完整性和类型安全。
 """
 
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class SemanticMemory(BaseModel):

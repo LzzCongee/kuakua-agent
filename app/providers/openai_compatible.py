@@ -10,7 +10,6 @@ OpenAI 兼容 AI Provider 实现
 """
 
 import logging
-
 from typing import TYPE_CHECKING, AsyncGenerator, Optional  # noqa: UP035
 
 import httpx
