@@ -112,6 +112,23 @@
             border: 1px solid #ddd;
             margin-right: 40px;
         }
+        .message .favorite-btn {
+            margin-top: 8px;
+            padding: 4px 12px;
+            font-size: 12px;
+            background: transparent;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            color: #4a90d9;
+            cursor: pointer;
+        }
+        .message .favorite-btn:hover {
+            background: #f0f0f0;
+        }
+        .message .favorite-btn[favorited] {
+            color: #f44336;
+            border-color: #f44336;
+        }
         .message .label {
             font-size: 12px;
             color: #888;
@@ -1157,7 +1174,15 @@
             const div = document.createElement('div');
             div.className = `message ${role}`;
             const imageTag = hasImage ? '<span class="image-indicator">含图片</span>' : '';
-            div.innerHTML = `<div class="label">${role === 'user' ? '你' : '夸夸 Agent'}${imageTag}</div><div class="content">${content}</div>`;
+            const isAssistant = role === 'assistant';
+            const favoriteBtn = isAssistant
+                ? `<button class="favorite-btn" onclick="toggleFavorite(${JSON.stringify(content).replace(/"/g, '&quot;')}, this)">${favoriteCache.has(content) ? '已收藏' : '收藏'}</button>`
+                : '';
+            div.innerHTML = `
+                <div class="label">${role === 'user' ? '你' : '夸夸 Agent'}${imageTag}</div>
+                <div class="content">${content}</div>
+                ${favoriteBtn}
+            `;
             container.appendChild(div);
             container.scrollTop = container.scrollHeight;
         }
@@ -1591,8 +1616,99 @@
         // 初始化
         initSession();
         initImageUpload();
+        initFavoriteCache();
 
         // ========== 收藏管理 ==========
+        let favoriteCache = new Set();  // 已收藏内容缓存，用于快速判断
+
+        async function initFavoriteCache() {
+            const userId = getUserId();
+            try {
+                const res = await fetch(`${API_BASE}/api/favorites`, {
+                    headers: { 'X-User-ID': userId }
+                });
+                const data = await res.json();
+                if (data.code === 0 && data.data) {
+                    favoriteCache = new Set(data.data.map(f => f.content));
+                }
+            } catch (e) {
+                console.error('加载收藏缓存失败', e);
+            }
+        }
+
+        async function toggleFavorite(content, btn) {
+            const userId = getUserId();
+            if (favoriteCache.has(content)) {
+                // 已收藏，删除
+                await deleteFavoriteByContent(content, btn);
+            } else {
+                // 未收藏，添加
+                await addFavoriteFromMessage(content, btn);
+            }
+        }
+
+        async function addFavoriteFromMessage(content, btn) {
+            const userId = getUserId();
+            try {
+                const res = await fetch(`${API_BASE}/api/favorites`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ content, scene: 'general' })
+                });
+                const data = await res.json();
+                if (data.code === 0) {
+                    favoriteCache.add(content);
+                    updateFavoriteBtn(btn, true);
+                    showStatus('favoritesResult', '已收藏', 'success');
+                } else {
+                    showError('favoritesResult', data.message);
+                }
+            } catch (e) {
+                showError('favoritesResult', e.message);
+            }
+        }
+
+        async function deleteFavoriteByContent(content, btn) {
+            const userId = getUserId();
+            try {
+                // 先查找到对应的收藏ID
+                const res = await fetch(`${API_BASE}/api/favorites`, {
+                    headers: { 'X-User-ID': userId }
+                });
+                const data = await res.json();
+                if (data.code === 0 && data.data) {
+                    const fav = data.data.find(f => f.content === content);
+                    if (fav) {
+                        await fetch(`${API_BASE}/api/favorites/${fav.id}`, {
+                            method: 'DELETE',
+                            headers: { 'X-User-ID': userId }
+                        });
+                        favoriteCache.delete(content);
+                        updateFavoriteBtn(btn, false);
+                        showStatus('favoritesResult', '已取消收藏', 'success');
+                    }
+                }
+            } catch (e) {
+                showError('favoritesResult', e.message);
+            }
+        }
+
+        function updateFavoriteBtn(btn, isFavorited) {
+            if (!btn) return;
+            if (isFavorited) {
+                btn.textContent = '已收藏';
+                btn.style.color = '#f44336';
+                btn.setAttribute('favorited', 'true');
+            } else {
+                btn.textContent = '收藏';
+                btn.style.color = '#4a90d9';
+                btn.removeAttribute('favorited');
+            }
+        }
+
         async function addFavorite() {
             const userId = getUserId();
             const content = document.getElementById('favoriteContent').value.trim();
