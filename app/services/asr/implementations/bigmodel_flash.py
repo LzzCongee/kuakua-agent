@@ -10,7 +10,8 @@ API 端点：
 - POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash
 
 配置（环境变量）：
-- PURE_ASR__APP_KEY: API 密钥（新版控制台 App Key）
+- PURE_ASR__APP_ID: 火山引擎 APP ID
+- PURE_ASR__ACCESS_TOKEN: 火山引擎 Access Token
 - PURE_ASR__BASE_URL: ASR 端点
 - PURE_ASR__RESOURCE_ID: 资源 ID
 - PURE_ASR__MODEL: 模型名称
@@ -49,13 +50,15 @@ class BigModelFlashASRProvider(BaseASRProvider):
 
     def __init__(
         self,
-        app_key: str,
+        app_id: str,
+        access_token: str,
         base_url: str,
         resource_id: str = "volc.bigasr.auc_turbo",
         model: str = "bigmodel",
         timeout: float = 30.0,
     ):
-        self.app_key = app_key
+        self.app_id = app_id
+        self.access_token = access_token
         self.base_url = base_url
         self.resource_id = resource_id
         self.model = model
@@ -72,7 +75,8 @@ class BigModelFlashASRProvider(BaseASRProvider):
     def from_config(cls, config: "PureASRConfig") -> "BigModelFlashASRProvider":
         """从 PureASRConfig 创建实例"""
         return cls(
-            app_key=config.app_key,
+            app_id=config.app_id,
+            access_token=config.access_token,
             base_url=config.base_url,
             resource_id=config.resource_id,
             model=config.model,
@@ -95,20 +99,24 @@ class BigModelFlashASRProvider(BaseASRProvider):
         Returns:
             ASRResult: 转写结果
         """
-        logger.info(f"BigModel ASR 开始转写 | format={format}, size={len(audio)}")
+        logger.info(
+            f"BigModel ASR 开始转写 | format={format} size={len(audio)} "
+            f"app_id={self.app_id[:4]}*** access_token={self.access_token[:4]}***"
+        )
 
         request_id = str(uuid.uuid4())
         audio_b64 = base64.b64encode(audio).decode("utf-8")
 
         headers = {
-            "X-Api-App-Key": self.app_key,
+            "X-Api-App-Key": self.app_id,
+            "X-Api-Access-Key": self.access_token,
             "X-Api-Resource-Id": self.resource_id,
             "X-Api-Request-Id": request_id,
             "X-Api-Sequence": "-1",
         }
 
         body = {
-            "user": {"uid": self.app_key},
+            "user": {"uid": self.app_id},
             "audio": {"data": audio_b64, "format": format},
             "request": {"model_name": self.model},
         }

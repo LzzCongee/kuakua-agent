@@ -22,7 +22,8 @@ Provider 类型：
 
 配置（环境变量）：
 - ASR_PROVIDER: ASR 实现类型 (bigmodel/doubao)
-- PURE_ASR__APP_KEY: BigModel Flash API 密钥
+- PURE_ASR__APP_ID: 火山引擎 APP ID
+- PURE_ASR__ACCESS_TOKEN: 火山引擎 Access Token
 - PURE_ASR__BASE_URL: BigModel Flash ASR 端点
 - PURE_ASR__RESOURCE_ID: 资源 ID
 - PURE_ASR__MODEL: 模型名称

@@ -40,17 +40,17 @@ class ModelConfig(BaseModel):
 class PureASRConfig(BaseModel):
     """纯 ASR 专用配置（使用火山引擎 BigModel Flash ASR API，与 AI 模型配置完全分离）
 
-    新版控制台只需 app_key，不需要 access_key。
-
     环境变量：
-    - PURE_ASR__APP_KEY: 火山引擎 App Key（新版控制台 API Key）
+    - PURE_ASR__APP_ID: 火山引擎 APP ID（控制台获取）
+    - PURE_ASR__ACCESS_TOKEN: 火山引擎 Access Token（控制台获取）
     - PURE_ASR__BASE_URL: BigModel Flash ASR 端点
     - PURE_ASR__RESOURCE_ID: 资源 ID（默认 volc.bigasr.auc_turbo）
     - PURE_ASR__MODEL: 模型名称（默认 bigmodel）
     - PURE_ASR__TIMEOUT: 超时秒数（默认 30s）
     """
 
-    app_key: str = Field(default="", description="火山引擎 App Key（新版控制台 API Key）")
+    app_id: str = Field(default="", description="火山引擎 APP ID")
+    access_token: str = Field(default="", description="火山引擎 Access Token")
     base_url: str = Field(
         default="https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
         description="BigModel Flash ASR 端点",
