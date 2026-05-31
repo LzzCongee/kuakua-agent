@@ -26,72 +26,85 @@ logger = get_logger(__name__)
 class QuoteService:
     """
     夸夸生成服务类
-    
+
     封装夸夸语录的生成逻辑，支持多种场景和 AI Provider。
-    
+
     Attributes:
         provider: AI Provider 实例，用于生成文案
-        
+
     Example:
         >>> from app.providers.openai_compatible import OpenAICompatibleProvider
         >>> provider = OpenAICompatibleProvider(api_key="your-key", base_url="https://api.minimax.chat/v1")
         >>> service = QuoteService(provider)
         >>> quote = await service.get_random_quote()
     """
-    
+
     def __init__(self, provider: BaseAIProvider):
         """
         初始化夸夸生成服务
-        
+
         Args:
             provider: AI Provider 实例，用于调用大模型生成文案
         """
         self.provider = provider
-    
+
+    def _build_user_prompt(self, base_user_prompt: str, memory_summary: MemorySummary | None) -> str:
+        """构建 user prompt，将记忆上下文放在 base 之前"""
+        if not memory_summary:
+            return base_user_prompt
+        try:
+            from app.services.memory import MemoryContext
+            context = MemoryContext.from_memory_summary(memory_summary)
+            memory_str = context.to_prompt_string()
+            if memory_str:
+                return f"{memory_str}\n\n{base_user_prompt}"
+        except Exception:
+            logger.warning("记忆上下文构建失败，使用 base prompt", exc_info=True)
+        return base_user_prompt
+
     async def get_random_quote(
-        self, 
+        self,
         user_id: str = "default",
         memory_service: Optional[MemoryService] = None
     ) -> QuoteResponse:
         """
         生成通用随机夸夸
-        
+
         使用 GENERAL 场景的 Prompt 模板生成一条随机的夸赞文案。
         如果提供了用户上下文，会尝试注入用户偏好生成个性化夸夸。
-        
+
         Args:
             user_id: 用户ID，用于获取用户偏好
             memory_service: 记忆服务实例，用于获取用户偏好
-            
+
         Returns:
             QuoteResponse: 包含夸夸内容、场景标签和创建时间的响应对象
-            
+
         Raises:
             AIServiceException: 当 AI 服务调用失败时抛出
         """
         try:
             prompt = get_prompt(SceneType.GENERAL)
             system_prompt = prompt["system"]
-            
-            # 尝试注入用户偏好
+
+            # 尝试获取用户偏好
             memory_summary = None
             if memory_service and user_id != "default":
                 try:
                     memory_summary = await memory_service.get_memory_summary(user_id, None)
                 except Exception:
                     logger.warning(f"记忆注入降级（随机夸夸）| user_id={user_id}", exc_info=True)
-            
-            # 如果有用户偏好，注入到 system prompt
-            if memory_summary:
-                system_prompt = self._inject_memory_to_prompt(system_prompt, memory_summary)
-            
+
+            # 构建 user prompt（记忆上下文拼入 user message，不注入 system_prompt）
+            user_prompt = self._build_user_prompt(prompt["user"], memory_summary)
+
             content = await self.provider.generate(
-                prompt=prompt["user"],
+                prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.8,
                 max_tokens=100
             )
-            
+
             return QuoteResponse(
                 content=content,
                 scene=SceneType.GENERAL.value,
@@ -101,7 +114,7 @@ class QuoteService:
             raise AIServiceException(f"生成随机夸夸失败: {e.message}")
         except Exception as e:
             raise AIServiceException(f"生成随机夸夸时发生错误: {str(e)}")
-    
+
     async def get_scene_quote(
         self,
         scene: Literal["career", "beauty", "love", "daily", "general"],
@@ -110,19 +123,19 @@ class QuoteService:
     ) -> QuoteResponse:
         """
         生成指定场景的夸夸
-        
+
         根据用户指定的场景类型生成相应的夸赞文案。
         如果场景参数无效，自动回退到通用场景。
         如果提供了用户上下文，会尝试注入用户偏好生成个性化夸夸。
-        
+
         Args:
             scene: 场景类型字符串，可选值：career, beauty, love, daily
             user_id: 用户ID，用于获取用户偏好
             memory_service: 记忆服务实例，用于获取用户偏好
-            
+
         Returns:
             QuoteResponse: 包含夸夸内容、场景标签和创建时间的响应对象
-            
+
         Raises:
             AIServiceException: 当 AI 服务调用失败时抛出
         """
@@ -130,32 +143,30 @@ class QuoteService:
         try:
             scene_type = get_scene_by_value(scene)
         except ValueError:
-            # 无效场景，回退到通用场景
             scene_type = SceneType.GENERAL
-        
+
         try:
             prompt = get_prompt(scene_type)
             system_prompt = prompt["system"]
-            
-            # 尝试注入用户偏好
+
+            # 尝试获取用户偏好
             memory_summary = None
             if memory_service and user_id != "default":
                 try:
                     memory_summary = await memory_service.get_memory_summary(user_id, None)
                 except Exception:
                     logger.warning(f"记忆注入降级（场景夸夸）| user_id={user_id} | scene={scene}", exc_info=True)
-            
-            # 如果有用户偏好，注入到 system prompt
-            if memory_summary:
-                system_prompt = self._inject_memory_to_prompt(system_prompt, memory_summary)
-            
+
+            # 构建 user prompt（记忆上下文拼入 user message，不注入 system_prompt）
+            user_prompt = self._build_user_prompt(prompt["user"], memory_summary)
+
             content = await self.provider.generate(
-                prompt=prompt["user"],
+                prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.8,
                 max_tokens=100
             )
-            
+
             return QuoteResponse(
                 content=content,
                 scene=scene_type.value,
@@ -165,40 +176,3 @@ class QuoteService:
             raise AIServiceException(f"生成场景夸夸失败: {e.message}")
         except Exception as e:
             raise AIServiceException(f"生成场景夸夸时发生错误: {str(e)}")
-    
-    def _inject_memory_to_prompt(self, system_prompt: str, memory: MemorySummary) -> str:
-        """
-        将用户记忆注入到 system prompt
-        
-        Args:
-            system_prompt: 原始 system prompt
-            memory: 用户记忆汇总
-            
-        Returns:
-            str: 注入记忆后的 system prompt
-        """
-        parts = []
-        
-        # 偏好场景
-        if memory.prefer_scene:
-            parts.append(f"- 偏好场景：{memory.prefer_scene}")
-        
-        # 喜欢的风格
-        if memory.prefer_style:
-            parts.append(f"- 喜欢风格：{memory.prefer_style}")
-        
-        # 用户标签
-        if memory.user_tags:
-            tags_str = ", ".join(memory.user_tags[:5])
-            parts.append(f"- 用户标签：{tags_str}")
-        
-        # 高光里程碑
-        if memory.milestones:
-            milestones_str = "; ".join(memory.milestones[:2])
-            parts.append(f"- 高光时刻：{milestones_str}")
-        
-        if not parts:
-            return system_prompt
-        
-        memory_block = "\n".join(parts)
-        return f"{system_prompt}\n\n【用户偏好信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"

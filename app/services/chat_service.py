@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Literal
 from ..config import ModelConfig
 from ..core.logging import get_logger
 from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
-from ..prompts.templates import get_chat_prompt, get_personality, get_random_mode_config, get_random_mode_prompt
+from ..prompts.templates import get_chat_prompt, get_random_mode_config, get_random_mode_prompt
 from ..providers.base import BaseAIProvider
 
 logger = get_logger(__name__)
@@ -28,17 +28,17 @@ if TYPE_CHECKING:
 class ChatService:
     """
     交互式夸夸服务类
-    
+
     处理用户发送的文字和图片，调用 AI 模型生成个性化的夸赞文案。
     支持纯文字、纯图片、图文混合三种输入模式。
     支持记忆注入，实现千人千面的个性化夸夸。
-    
+
     Attributes:
         provider: AI Provider 实例，用于调用大模型
         vision_model: 视觉模型名称，用于处理图片输入
         memory_service: 可选的 MemoryService 实例，用于获取用户记忆
     """
-    
+
     # 类属性类型注解
     provider: BaseAIProvider
     _vision_config: ModelConfig
@@ -61,47 +61,47 @@ class ChatService:
         self.provider = provider
         self._vision_config = vision_config
         self.memory_service = memory_service
-    
+
     async def chat(
-        self, 
-        request: ChatRequest, 
+        self,
+        request: ChatRequest,
         prompt_override: PromptContent | None = None,
         memory_summary: MemorySummary | None = None
     ) -> ChatResponse:
         """
         处理用户输入，生成夸赞文案
-        
+
         根据输入类型（纯文字、纯图片、图文混合）选择不同的处理方式，
         调用相应的 AI 模型生成个性化的夸赞内容。
-        
-        如果提供了 memory_summary，会将其注入到 system prompt 中，
-        实现基于用户偏好的个性化夸夸。
-        
+
+        如果提供了 memory_summary，会从中构建结构化记忆上下文，
+        放入 user message 而非 system_prompt。
+
         Args:
             request: 包含 text、image、scene 的请求对象
             prompt_override: 可选的 prompt 覆盖
             memory_summary: 可选的用户记忆汇总，用于注入个性化信息
-            
+
         Returns:
             ChatResponse: 包含 AI 生成的夸夸文案
-            
+
         Raises:
             AIProviderException: 当 AI 调用失败时抛出
         """
         # 判断输入类型
         has_text = bool(request.text and request.text.strip())
         has_image = bool(request.image and request.image.strip())
-        
+
         if has_text and has_image:
             input_type: Literal["mixed", "image_only", "text_only"] = "mixed"
         elif has_image:
             input_type = "image_only"
         else:
             input_type = "text_only"
-        
+
         logger.debug(f"输入类型判定 | has_text={has_text} | has_image={has_image} | input_type={input_type}")
-        
-        # 获取对应的 system prompt
+
+        # 获取 system prompt（干净，不含记忆上下文）
         if prompt_override:
             system_prompt = prompt_override["system"]
             logger.debug(f"使用 AB 测试 Prompt | scene={request.scene}")
@@ -109,16 +109,19 @@ class ChatService:
             prompt_template = get_chat_prompt(input_type)
             system_prompt = prompt_template["system"]
             logger.debug(f"使用默认 Prompt | input_type={input_type}")
-        
-        # 注入记忆上下文
-        personality_used = getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default'
 
+        # 构建记忆上下文（放入 user message，不注入 system_prompt）
+        memory_context_str = ""
         if memory_summary:
-            system_prompt = self._inject_memory(system_prompt, memory_summary)
-            logger.debug(f"记忆注入完成 | 场景={memory_summary.prefer_scene} | 标签数={len(memory_summary.user_tags)} | 里程碑数={len(memory_summary.milestones)}")
-        else:
-            logger.debug("无记忆注入")
+            from app.services.memory import MemoryContext
 
+            context = MemoryContext.from_memory_summary(memory_summary)
+            memory_context_str = context.to_prompt_string()
+            logger.debug(f"记忆上下文构建 | 场景={memory_summary.prefer_scene} | 标签数={len(memory_summary.user_tags)} | 里程碑数={len(memory_summary.milestones)}")
+        else:
+            logger.debug("无记忆上下文")
+
+        personality_used = getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default'
         logger.info(f"人格记录 | personality={personality_used} | tone_shift={getattr(memory_summary, 'tone_shift', False) if memory_summary else False}")
 
         # 判断是否使用随机模式
@@ -141,17 +144,17 @@ class ChatService:
         # 根据输入类型调用不同的生成方法
         image_desc = None
         if input_type == "text_only":
-            # text 可能为空（纯图片场景），使用空字符串
             text_content = request.text or ""
             logger.debug("开始纯文字生成")
-            content = await self._generate_text_only(system_prompt, text_content)
+            content = await self._generate_text_only(system_prompt, text_content, memory_context_str)
             logger.debug(f"纯文字生成完成 | content_length={len(content)}")
         else:
             logger.debug(f"开始多模态生成 | text={has_text} | image={has_image}")
             multimodal_result = await self._generate_multimodal(
                 system_prompt,
                 request.text if has_text else None,
-                request.image if has_image else None
+                request.image if has_image else None,
+                memory_context_str,
             )
             content = multimodal_result["content"]
             image_desc = multimodal_result.get("image_desc")
@@ -164,92 +167,42 @@ class ChatService:
             image_desc=image_desc,
             created_at=datetime.now(UTC)
         )
-    
-    def _inject_memory(self, system_prompt: str, memory: MemorySummary) -> str:
-        """
-        将用户记忆注入到 system prompt
 
-        Args:
-            system_prompt: 原始 system prompt
-            memory: 用户记忆汇总
-
-        Returns:
-            str: 注入记忆后的 system prompt
-        """
-        from app.services.memory import MemoryContext
-
-        context = MemoryContext.from_memory_summary(memory)
-        memory_str = context.to_prompt_string()
-
-        # 人格注入：仅在非 default 时注入
-        personality_str = self._inject_personality(context.personality_prefer)
-
-        if not memory_str and not personality_str:
-            logger.debug("记忆注入: 无内容可注入")
-            return system_prompt
-
-        parts = [system_prompt]
-        if personality_str:
-            parts.append(personality_str)
-        if memory_str:
-            parts.append(memory_str)
-
-        result = "\n\n".join(parts)
-        logger.debug(f"记忆注入: 最终注入内容 | {result[:300]}")
-        return result
-
-    def _inject_personality(self, personality: str) -> str:
-        """
-        将人格变体注入到 system prompt
-
-        Args:
-            personality: 人格类型 (default/witty/chill/enthusiastic)
-
-        Returns:
-            str: 人格注入的 prompt 片段，如果为 default 则返回空字符串
-        """
-        if personality == "default":
-            return ""
-
-        personality_data = get_personality(personality)
-        role = personality_data.get("role", "")
-        tone = personality_data.get("tone", "")
-
-        if not role:
-            return ""
-
-        return f"【人格模式：{tone}】\n{role}"
-    
-    async def _generate_text_only(self, system_prompt: str, text: str) -> str:
+    async def _generate_text_only(self, system_prompt: str, text: str, memory_context: str = "") -> str:
         """
         纯文字场景生成
 
-        将 system prompt 和用户文字组合后调用 provider.generate()
+        system_prompt 通过 system role 传递，
+        memory_context 拼入 user message（按结构化格式）。
+        避免将 system_prompt 内容混入 user message。
 
         Args:
-            system_prompt: 系统提示词
+            system_prompt: 系统提示词（通过 system role 传递）
             text: 用户输入的文字
+            memory_context: 结构化的记忆上下文（放入 user message）
 
         Returns:
             str: AI 生成的文本内容
         """
-        # 组合 system prompt 和用户文字
-        full_prompt = f"{system_prompt}\n\n用户说：{text}"
-        logger.debug(f"调用 provider.generate | prompt_length={len(full_prompt)} | text_length={len(text)}")
-        content = await self.provider.generate(full_prompt)
+        if memory_context:
+            user_prompt = f"{memory_context}\n\n用户说：{text}"
+        else:
+            user_prompt = f"用户说：{text}"
+        logger.debug(f"调用 provider.generate | prompt_length={len(user_prompt)} | text_length={len(text)} | memory={bool(memory_context)}")
+        content = await self.provider.generate(user_prompt, system_prompt=system_prompt)
 
-        # 如果返回空内容，给一个默认引导
         if not content or not content.strip():
             logger.warning(f"AI 返回空内容，使用默认回复 | text={text[:30]}...")
             return "我是一个夸夸小助手，专注于发现你身上的闪光点~ 你想让我夸你什么呢？"
 
         return content
-    
+
     async def _generate_multimodal(
         self,
         system_prompt: str,
         text: str | None,
-        image: str | None
+        image: str | None,
+        memory_context: str = "",
     ) -> dict[str, str]:
         """
         多模态场景生成（含图片）
@@ -261,6 +214,7 @@ class ChatService:
             system_prompt: 系统提示词
             text: 用户输入的文字（可选）
             image: 用户输入的图片 base64 数据（可选）
+            memory_context: 结构化的记忆上下文（放入 user message 首段）
 
         Returns:
             dict: {"content": 夸赞文案, "image_desc": 图片描述或None}
@@ -284,6 +238,13 @@ class ChatService:
 
         # 构建 user message content（支持多模态）
         user_content: list[dict[str, object]] = []
+
+        # 记忆上下文作为首段文字（放在用户输入之前）
+        if memory_context:
+            user_content.append({
+                "type": "text",
+                "text": memory_context
+            })
 
         # 添加文字内容（如果有）
         if text:
@@ -317,7 +278,7 @@ class ChatService:
 
         # 解析 JSON 响应，提取夸赞文案和图片描述
         return self._parse_multimodal_response(raw)
-    
+
     def _parse_multimodal_response(self, raw: str) -> dict[str, str]:
         """
         解析多模态生成的 JSON 响应
@@ -364,13 +325,13 @@ class ChatService:
     def _ensure_data_uri(self, image_data: str) -> str:
         """
         确保图片 base64 数据有 data URI 前缀
-        
+
         如果用户传入的 base64 数据没有 data URI 前缀，自动添加。
         默认使用 image/jpeg 类型。
-        
+
         Args:
             image_data: base64 编码的图片数据
-            
+
         Returns:
             str: 带有 data URI 前缀的完整图片 URL
         """

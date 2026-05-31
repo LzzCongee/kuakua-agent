@@ -235,10 +235,6 @@ async def _prepare_chat_request(
             system_prompt = prompt_template["system"]
             prompt_source = prompt_source or "template"
 
-    # 注入记忆上下文
-    if memory_summary:
-        system_prompt = _inject_memory_to_prompt(system_prompt, memory_summary)
-
     # 调试模式：构建调试信息
     debug_info: ChatDebugInfo | None = None
     # 使用实际传给模型的文字（ASR 提取的或原始 text）
@@ -438,6 +434,13 @@ async def chat_stream(
             image_desc = None
             text_input: str = chat_request.text or ""
 
+            # 构建记忆上下文（放入 user message）
+            memory_context_str = ""
+            if prep.memory_summary:
+                from app.services.memory import MemoryContext
+                context = MemoryContext.from_memory_summary(prep.memory_summary)
+                memory_context_str = context.to_prompt_string()
+
             if prep.has_image:
                 # 多模态输入：视觉模型不支持流式，降级为非流式生成后一次 yield
                 logger.info(
@@ -450,6 +453,7 @@ async def chat_stream(
                             system_prompt=prep.system_prompt,
                             text=text_input,
                             image=chat_request.image,
+                            memory_context=memory_context_str,
                         )
                 except TimeoutError:
                     logger.warning(
@@ -473,8 +477,12 @@ async def chat_stream(
                     "data": json.dumps({"content": full_content}, ensure_ascii=False),
                 }
             else:
+                if memory_context_str:
+                    stream_prompt = f"{memory_context_str}\n\n用户说：{text_input}"
+                else:
+                    stream_prompt = text_input
                 async for chunk in service.provider.generate_stream(
-                    prompt=text_input,
+                    prompt=stream_prompt,
                     system_prompt=prep.system_prompt,
                     temperature=0.8,
                     max_tokens=300,
@@ -923,86 +931,4 @@ def _handle_task_exception(task: asyncio.Task[Any]) -> None:
             pass
 
 
-def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
-    """
-    将用户记忆和人格注入到 system prompt
-
-    Args:
-        system_prompt: 原始 system prompt
-        memory: 用户记忆汇总
-
-    Returns:
-        str: 注入记忆后的 system prompt
-    """
-    from ..prompts.templates import get_personality
-
-    parts: list[str] = []
-
-    # 人格注入（放在最前面，因为人格会改变整个语气）
-    personality = getattr(memory, 'personality_prefer', 'default') or 'default'
-    if personality != "default":
-        personality_data = get_personality(personality)
-        role = personality_data.get("role", "")
-        tone = personality_data.get("tone", "")
-        if role:
-            parts.append(f"【人格模式：{tone}】\n{role}")
-
-    # 偏好场景和风格
-    if memory.prefer_scene:
-        parts.append(f"- 偏好场景：{memory.prefer_scene}")
-    if memory.prefer_style:
-        parts.append(f"- 喜欢风格：{memory.prefer_style}")
-
-    # 用户标签
-    if memory.user_tags:
-        tags_str = ", ".join(memory.user_tags[:5])
-        parts.append(f"- 用户标签：{tags_str}")
-
-    # 最近情绪
-    if memory.last_emotion:
-        parts.append(f"- 当前情绪：{memory.last_emotion}")
-
-    # 最近对话（用于保持上下文连贯，按完整轮次拼接）
-    if memory.recent_messages:
-        msg_list: list[str] = []
-        msgs = memory.recent_messages
-        last_assistant_idx = None
-        for i in range(len(msgs) - 1, -1, -1):
-            if msgs[i].get("role") == "assistant":
-                last_assistant_idx = i
-                break
-        if last_assistant_idx is not None:
-            start = max(0, last_assistant_idx - 1)
-            first_msg = msgs[start]
-            ts = first_msg.get("timestamp", "")
-            time_str = ""
-            if ts:
-                try:
-                    dt = datetime.fromisoformat(ts)
-                    time_str = f"({dt.strftime('%H:%M')}) "
-                except (ValueError, TypeError):
-                    pass
-            for idx, msg in enumerate(msgs[start:last_assistant_idx + 1]):
-                role = "用户" if msg.get("role") == "user" else "夸夸"
-                content = (msg.get("content") or "")[:80]
-                prefix = time_str if idx == 0 else ""
-                msg_list.append(f"{prefix}{role}：{content}")
-        if msg_list:
-            parts.append(f"- 最近对话：{' | '.join(msg_list)}")
-
-    # 高光里程碑（用于夸得真诚）
-    if memory.milestones:
-        milestones_str = "; ".join(memory.milestones[:3])
-        parts.append(f"- 高光时刻：{milestones_str}")
-
-    # 语义记忆（来自 supermemory）
-    if memory.semantic_memories:
-        semantic_str = "; ".join(memory.semantic_memories[:2])
-        parts.append(f"- 相关记忆：{semantic_str}")
-
-    if not parts:
-        return system_prompt
-
-    memory_block = "\n".join(parts)
-    logger.debug(f"Prompt 记忆注入 | 内容预览: {memory_block[:300]}")
-    return f"{system_prompt}\n\n【用户个性化信息】（请结合以下信息生成更贴合用户的夸夸）\n{memory_block}"
+    # (replaced by MemoryContext.to_prompt_string() in user message)

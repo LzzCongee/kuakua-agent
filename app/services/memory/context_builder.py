@@ -33,7 +33,7 @@ class MemoryContext(BaseModel):
     recent_messages: list[dict[str, str]] = Field(default_factory=list, max_length=6, description="最近消息")
     semantic_memories: list[SemanticMemory] = Field(default_factory=list, max_length=3, description="语义记忆")
 
-    # 人格偏好（新增）
+    # 人格偏好
     personality_prefer: str = Field(
         default="default",
         description="喜欢的人格类型：default/witty/chill/enthusiastic"
@@ -53,50 +53,80 @@ class MemoryContext(BaseModel):
 
     def to_prompt_string(self) -> str:
         """
-        转换为 Prompt 注入字符串
+        转换为结构化 Prompt 字符串（放在 user message 中）
+
+        按优先级从高到低分区块：
+        1. 当前状态（情绪、最近对话）
+        2. 交互设定（人格、幽默偏好）
+        3. 个人档案（场景、风格、标签）
+        4. 深度记忆（里程碑、语义记忆）
 
         Returns:
-            str: 格式化的记忆字符串，用于注入到 system prompt
+            str: 结构化的记忆字符串，空区块被跳过
         """
-        parts: list[str] = []
+        blocks: list[str] = []
 
-        if self.prefer_scene:
-            parts.append(f"- 偏好场景：{self.prefer_scene}")
-        if self.prefer_style:
-            parts.append(f"- 喜欢风格：{self.prefer_style}")
-        if self.user_tags:
-            parts.append(f"- 用户标签：{', '.join(self.user_tags[:5])}")
+        # === 区块 1：当前状态（最时效相关） ===
+        state_lines: list[str] = []
         if self.last_emotion:
-            parts.append(f"- 当前情绪：{self.last_emotion}")
-
+            state_lines.append(f"情绪：{self.last_emotion}")
         if self.recent_messages:
             msg_parts: list[str] = []
-            for m in self.recent_messages[-6:]:  # 最近6条消息（约3轮对话，每轮用户+AI）
+            for m in self.recent_messages[-6:]:
                 role = "用户" if m.get("role") == "user" else "夸夸"
-                content = str(m.get("content", ""))[:50]
+                content = str(m.get("content", ""))[:80]
                 msg_parts.append(f"{role}：{content}")
             if msg_parts:
-                parts.append(f"- 最近对话：{' | '.join(msg_parts)}")
+                state_lines.append(f"最近对话：{' | '.join(msg_parts)}")
+        if state_lines:
+            blocks.append("【当前状态】")
+            blocks.extend(state_lines)
 
+        # === 区块 2：交互设定（影响语气和行为） ===
+        style_lines: list[str] = []
+        if self.personality_prefer and self.personality_prefer != "default":
+            style_lines.append(f"人格模式：{self.personality_prefer}")
+        if self.humor_taste:
+            style_lines.append(f"幽默偏好：{self.humor_taste}")
+        if self.tone_shift:
+            style_lines.append("接受语气变化")
+        if style_lines:
+            if blocks:
+                blocks.append("")
+            blocks.append("【交互设定】")
+            blocks.extend(style_lines)
+
+        # === 区块 3：个人档案（静态偏好） ===
+        profile_lines: list[str] = []
+        if self.prefer_scene:
+            profile_lines.append(f"偏好场景：{self.prefer_scene}")
+        if self.prefer_style:
+            profile_lines.append(f"喜欢风格：{self.prefer_style}")
+        if self.user_tags:
+            profile_lines.append(f"用户标签：{', '.join(self.user_tags[:5])}")
+        if profile_lines:
+            if blocks:
+                blocks.append("")
+            blocks.append("【个人档案】")
+            blocks.extend(profile_lines)
+
+        # === 区块 4：深度记忆（长期背景） ===
+        memory_lines: list[str] = []
         if self.milestones:
-            parts.append(f"- 高光时刻：{'; '.join(self.milestones[:3])}")
-
+            memory_lines.append(f"高光时刻：{'; '.join(self.milestones[:3])}")
         if self.semantic_memories:
             semantic_contents = [m.content for m in self.semantic_memories[:2]]
-            parts.append(f"- 相关记忆：{'; '.join(semantic_contents)}")
+            memory_lines.append(f"相关记忆：{'; '.join(semantic_contents)}")
+        if memory_lines:
+            if blocks:
+                blocks.append("")
+            blocks.append("【深度记忆】")
+            blocks.extend(memory_lines)
 
-        # 人格偏好信息
-        if self.personality_prefer and self.personality_prefer != "default":
-            parts.append(f"- 人格偏好：{self.personality_prefer}")
-        if self.humor_taste:
-            parts.append(f"- 幽默偏好：{self.humor_taste}")
-        if self.tone_shift:
-            parts.append("- 接受语气变化（正经/搞笑）")
-
-        if not parts:
+        if not blocks:
             return ""
 
-        return "【用户个性化信息】\n" + "\n".join(parts)
+        return "\n".join(blocks)
 
     def is_empty(self) -> bool:
         """判断记忆上下文是否为空（无有效信息）"""
