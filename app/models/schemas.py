@@ -453,6 +453,9 @@ class MemorySummary(BaseModel):
                     "milestones": ["坚持跑步30天"],
                     "last_emotion": "tired",
                     "semantic_memories": ["用户之前提到喜欢简洁的夸赞风格"],
+                    "personality_prefer": "default",
+                    "humor_taste": None,
+                    "tone_shift": False,
                 }
             ]
         },
@@ -465,3 +468,17 @@ class MemorySummary(BaseModel):
     milestones: list[str] = Field(default_factory=list, description="高光里程碑")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
     semantic_memories: list[str] = Field(default_factory=list, description="语义记忆（supermemory）")
+
+    # 人格偏好（新增）
+    personality_prefer: str = Field(
+        default="default",
+        description="喜欢的人格类型：default/witty/chill/enthusiastic"
+    )
+    humor_taste: Optional[str] = Field(
+        default=None,
+        description="喜欢的幽默类型：teasing/insightful/meme/ironic"
+    )
+    tone_shift: bool = Field(
+        default=False,
+        description="是否接受语气转变（有时正经有时搞笑）"
+    )

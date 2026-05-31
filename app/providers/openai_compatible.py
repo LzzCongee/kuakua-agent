@@ -89,7 +89,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 150
+        max_tokens: int = 300
     ) -> str:
         """
         调用模型生成文本
@@ -98,7 +98,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
             prompt: 用户输入提示词
             system_prompt: 系统提示词（可选），用于设定 AI 角色和行为
             temperature: 采样温度，控制输出随机性（0-2，默认 0.7）
-            max_tokens: 最大生成 token 数（默认 150）
+            max_tokens: 最大生成 token 数（默认 300）
 
         Returns:
             AI 生成的文本内容
@@ -112,6 +112,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
 
+            logger.debug(f"generate 调用 | model={self.model} | max_tokens={max_tokens}")
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -120,6 +121,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
             )
 
             content = response.choices[0].message.content
+            logger.debug(f"generate 原始响应 | content={repr(content)[:200]}")
             return content.strip() if content else ""
 
         except Exception as e:
@@ -130,7 +132,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 150,
+        max_tokens: int = 300,
     ) -> AsyncGenerator[str, None]:
         """
         流式生成文本
@@ -141,7 +143,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
             prompt: 用户输入提示词
             system_prompt: 系统提示词（可选）
             temperature: 采样温度（默认 0.7）
-            max_tokens: 最大生成 token 数（默认 150）
+            max_tokens: 最大生成 token 数（默认 300）
 
         Yields:
             str: 逐步生成的文本片段

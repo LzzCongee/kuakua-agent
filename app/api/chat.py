@@ -925,7 +925,7 @@ def _handle_task_exception(task: asyncio.Task[Any]) -> None:
 
 def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     """
-    将用户记忆注入到 system prompt
+    将用户记忆和人格注入到 system prompt
 
     Args:
         system_prompt: 原始 system prompt
@@ -934,7 +934,18 @@ def _inject_memory_to_prompt(system_prompt: str, memory: MemorySummary) -> str:
     Returns:
         str: 注入记忆后的 system prompt
     """
+    from ..prompts.templates import get_personality
+
     parts: list[str] = []
+
+    # 人格注入（放在最前面，因为人格会改变整个语气）
+    personality = getattr(memory, 'personality_prefer', 'default') or 'default'
+    if personality != "default":
+        personality_data = get_personality(personality)
+        role = personality_data.get("role", "")
+        tone = personality_data.get("tone", "")
+        if role:
+            parts.append(f"【人格模式：{tone}】\n{role}")
 
     # 偏好场景和风格
     if memory.prefer_scene:

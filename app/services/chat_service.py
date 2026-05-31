@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING, Literal
 from ..config import ModelConfig
 from ..core.logging import get_logger
 from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
-from ..prompts.templates import get_chat_prompt
+from ..prompts.templates import get_chat_prompt, get_personality, get_random_mode_config, get_random_mode_prompt
 from ..providers.base import BaseAIProvider
 
 logger = get_logger(__name__)
@@ -115,7 +116,23 @@ class ChatService:
             logger.debug(f"记忆注入完成 | 场景={memory_summary.prefer_scene} | 标签数={len(memory_summary.user_tags)} | 里程碑数={len(memory_summary.milestones)}")
         else:
             logger.debug("无记忆注入")
-        
+
+        # 判断是否使用随机模式
+        if self._should_use_random_mode(request.text, memory_summary):
+            logger.debug("触发随机模式")
+            content = await self._generate_random_mode(
+                request.text or "",
+                getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default',
+                getattr(memory_summary, 'humor_taste', None) if memory_summary else None,
+            )
+            return ChatResponse(
+                content=content,
+                scene=request.scene,
+                has_image=has_image,
+                image_desc=None,
+                created_at=datetime.now(UTC)
+            )
+
         # 根据输入类型调用不同的生成方法
         image_desc = None
         if input_type == "text_only":
@@ -154,18 +171,49 @@ class ChatService:
         Returns:
             str: 注入记忆后的 system prompt
         """
-        # 使用 MemoryContext 进行类型安全的记忆注入
         from app.services.memory import MemoryContext
 
         context = MemoryContext.from_memory_summary(memory)
         memory_str = context.to_prompt_string()
 
-        if not memory_str:
+        # 人格注入：仅在非 default 时注入
+        personality_str = self._inject_personality(context.personality_prefer)
+
+        if not memory_str and not personality_str:
             logger.debug("记忆注入: 无内容可注入")
             return system_prompt
 
-        logger.debug(f"记忆注入: 最终注入内容 | {memory_str[:300]}")
-        return f"{system_prompt}\n\n{memory_str}"
+        parts = [system_prompt]
+        if personality_str:
+            parts.append(personality_str)
+        if memory_str:
+            parts.append(memory_str)
+
+        result = "\n\n".join(parts)
+        logger.debug(f"记忆注入: 最终注入内容 | {result[:300]}")
+        return result
+
+    def _inject_personality(self, personality: str) -> str:
+        """
+        将人格变体注入到 system prompt
+
+        Args:
+            personality: 人格类型 (default/witty/chill/enthusiastic)
+
+        Returns:
+            str: 人格注入的 prompt 片段，如果为 default 则返回空字符串
+        """
+        if personality == "default":
+            return ""
+
+        personality_data = get_personality(personality)
+        role = personality_data.get("role", "")
+        tone = personality_data.get("tone", "")
+
+        if not role:
+            return ""
+
+        return f"【人格模式：{tone}】\n{role}"
     
     async def _generate_text_only(self, system_prompt: str, text: str) -> str:
         """
@@ -324,3 +372,106 @@ class ChatService:
         if image_data.startswith("data:image"):
             return image_data
         return f"data:image/jpeg;base64,{image_data}"
+
+    def _should_use_random_mode(
+        self,
+        text: str | None,
+        memory_summary: MemorySummary | None
+    ) -> bool:
+        """
+        判断是否使用随机模式
+
+        触发条件：
+        1. 用户 query 中没有明显的求夸意图
+        2. 用户 tone_shift=True，或者有"接受随机"的标签
+        3. 30% 概率触发（可配置）
+        """
+        if not text or not text.strip():
+            return False
+
+        # 明显的求夸关键词
+        obvious_praise_triggers = ["求夸", "夸夸我", "让我开心", "夸一下", "开心一下", "夸夸", "夸人"]
+        for trigger in obvious_praise_triggers:
+            if trigger in text:
+                return False
+
+        # 检查用户偏好
+        if memory_summary:
+            if getattr(memory_summary, 'tone_shift', False) is False:
+                return False
+        else:
+            return False
+
+        # 获取配置
+        config = get_random_mode_config()
+        if not config.get("enabled", False):
+            return False
+
+        trigger_prob = config.get("trigger_probability", 0.3)
+
+        # 按概率触发
+        return random.random() < trigger_prob
+
+    async def _generate_random_mode(
+        self,
+        text: str,
+        personality: str,
+        humor_taste: str | None
+    ) -> str:
+        """
+        生成随机模式的回复
+
+        Args:
+            text: 用户输入的文本
+            personality: 人格类型（影响语气）
+            humor_taste: 喜欢的幽默类型
+
+        Returns:
+            str: 随机模式生成的回复
+        """
+        # 根据 humor_taste 调整分布
+        distribution = [
+            ("witty_teasing", 0.35),
+            ("insightful", 0.25),
+            ("meme", 0.20),
+            ("ironic_warm", 0.20),
+        ]
+
+        if humor_taste == "chill":
+            distribution = [
+                ("witty_teasing", 0.15),
+                ("insightful", 0.35),
+                ("meme", 0.20),
+                ("ironic_warm", 0.30),
+            ]
+        elif humor_taste == "teasing":
+            distribution = [
+                ("witty_teasing", 0.50),
+                ("insightful", 0.15),
+                ("meme", 0.15),
+                ("ironic_warm", 0.20),
+            ]
+
+        # 按权重随机选择
+        rand = random.random()
+        cumulative = 0.0
+        selected_type = "ironic_warm"
+        for mode_type, weight in distribution:
+            cumulative += weight
+            if rand <= cumulative:
+                selected_type = mode_type
+                break
+
+        # 生成 prompt 并调用
+        mode_prompt = get_random_mode_prompt(selected_type, text, personality)
+        logger.debug(f"随机模式生成 | type={selected_type} | personality={personality}")
+
+        try:
+            content = await self.provider.generate(mode_prompt)
+            if content and content.strip():
+                return content
+        except Exception as e:
+            logger.warning(f"随机模式生成失败，降级为默认回复 | error={e}")
+
+        # 降级：返回默认回复
+        return "今天想说点什么？我在听~"

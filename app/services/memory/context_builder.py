@@ -33,6 +33,24 @@ class MemoryContext(BaseModel):
     recent_messages: list[dict[str, str]] = Field(default_factory=list, max_length=6, description="最近消息")
     semantic_memories: list[SemanticMemory] = Field(default_factory=list, max_length=3, description="语义记忆")
 
+    # 人格偏好（新增）
+    personality_prefer: str = Field(
+        default="default",
+        description="喜欢的人格类型：default/witty/chill/enthusiastic"
+    )
+    humor_taste: Optional[str] = Field(
+        default=None,
+        description="喜欢的幽默类型：teasing/insightful/meme/ironic"
+    )
+    tone_shift: bool = Field(
+        default=False,
+        description="是否接受语气转变（有时正经有时搞笑）"
+    )
+    interaction_count: int = Field(
+        default=0,
+        description="累计交互次数，用于判断用户是否活跃"
+    )
+
     def to_prompt_string(self) -> str:
         """
         转换为 Prompt 注入字符串
@@ -66,6 +84,14 @@ class MemoryContext(BaseModel):
         if self.semantic_memories:
             semantic_contents = [m.content for m in self.semantic_memories[:2]]
             parts.append(f"- 相关记忆：{'; '.join(semantic_contents)}")
+
+        # 人格偏好信息
+        if self.personality_prefer and self.personality_prefer != "default":
+            parts.append(f"- 人格偏好：{self.personality_prefer}")
+        if self.humor_taste:
+            parts.append(f"- 幽默偏好：{self.humor_taste}")
+        if self.tone_shift:
+            parts.append("- 接受语气变化（正经/搞笑）")
 
         if not parts:
             return ""
@@ -119,4 +145,8 @@ class MemoryContext(BaseModel):
             milestones=memory_summary.milestones or [],
             recent_messages=memory_summary.recent_messages or [],
             semantic_memories=semantic_memories,
+            personality_prefer=getattr(memory_summary, 'personality_prefer', 'default') or 'default',
+            humor_taste=getattr(memory_summary, 'humor_taste', None),
+            tone_shift=getattr(memory_summary, 'tone_shift', False) or False,
+            interaction_count=getattr(memory_summary, 'interaction_count', 0) or 0,
         )

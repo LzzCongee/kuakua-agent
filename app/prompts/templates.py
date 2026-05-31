@@ -122,3 +122,69 @@ def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> 
         ),
         "user": data.get("user", ""),
     }
+
+
+def get_personality(personality: str) -> dict:
+    """
+    获取人格变体配置
+
+    Args:
+        personality: 人格类型 (default/witty/chill/enthusiastic)
+
+    Returns:
+        dict: 包含 role、tone、trigger_tags 的配置
+    """
+    personalities = _data.get("personalities", {})
+    return personalities.get(personality, personalities.get("default", {}))
+
+
+def get_random_mode_config() -> dict:
+    """
+    获取随机模式配置
+
+    Returns:
+        dict: 包含 enabled、trigger_probability、categories 的配置
+    """
+    return _data.get("random_modes", {})
+
+
+def get_random_mode_prompt(
+    mode_type: str,
+    user_input: str,
+    personality: str = "default"
+) -> str:
+    """
+    生成随机模式的 prompt 模板
+
+    Args:
+        mode_type: 随机模式类型 (witty_teasing/insightful/meme/ironic_warm)
+        user_input: 用户输入的文本
+        personality: 人格类型（影响语气）
+
+    Returns:
+        str: 渲染后的 prompt
+    """
+    random_modes = _data.get("random_modes", {})
+    categories = random_modes.get("categories", {})
+
+    if mode_type not in categories:
+        mode_type = "ironic_warm"
+
+    personality_data = get_personality(personality)
+    tone = personality_data.get("tone", "")
+
+    mode_descs = {
+        "witty_teasing": "用调侃的方式回应，看似吐槽实则夸人",
+        "insightful": "说一句让人愣住的洞察，不是夸但让人想继续聊",
+        "meme": "用当前流行的梗或段子来回应，结合时事",
+        "ironic_warm": "偏不按用户预期的方式回应，出乎意料但暖心",
+    }
+
+    desc = mode_descs.get(mode_type, "")
+
+    return (
+        f"【模式：随机互动 | 语气：{tone}】\n"
+        f"用户说：{user_input}\n"
+        f"你的回应：{desc}\n"
+        f"要求：30字以内，像朋友私聊，语气自然不刻意。"
+    )
