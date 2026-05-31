@@ -590,6 +590,7 @@
                     <button onclick="sendChat()" id="sendBtn">发送消息</button>
                     <button class="secondary" onclick="sendStream()" id="streamBtn">流式输出</button>
                     <button class="stop" onclick="stopGeneration()" id="stopBtn" style="display:none;">停止回复</button>
+                    <button onclick="checkGreeting()" id="greetingBtn" style="background: #ff6f00;">✨ 随机夸夸测试</button>
                     <label class="debug-toggle">
                         <input type="checkbox" id="debugMode"> 调试模式
                     </label>
@@ -606,6 +607,12 @@
                     <span style="font-size: 12px;">拖动底部边框可调整高度</span>
                 </div>
                 <div class="resize-handle"></div>
+            </div>
+
+            <!-- 问候测试结果 -->
+            <div id="greetingResult" style="display:none; margin-top: 15px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 16px;">
+                <h4 style="margin: 0 0 10px; color: #e65100;">✨ 随机夸夸测试结果</h4>
+                <div id="greetingContent"></div>
             </div>
 
             <!-- 调试面板 -->
@@ -1383,6 +1390,114 @@
                 streamBtn.disabled = false;
                 stopBtn.style.display = 'none';
                 currentAbortController = null;
+            }
+        }
+
+        // ========== 随机夸夸测试（主动问候检测） ==========
+        async function checkGreeting() {
+            const userId = getUserId();
+            const sessionId = getSessionId();
+            const btn = document.getElementById('greetingBtn');
+            const originalText = btn.textContent;
+            btn.textContent = '检测中...';
+            btn.disabled = true;
+
+            try {
+                let url = `${API_BASE}/api/chat/greeting?session_id=${encodeURIComponent(sessionId)}`;
+                const res = await fetch(url, {
+                    headers: { 'X-User-ID': userId }
+                });
+                const data = await res.json();
+
+                const container = document.getElementById('greetingResult');
+                const content = document.getElementById('greetingContent');
+
+                if (data.code === 0 && data.data) {
+                    const ctx = data.data;
+                    const userTypeMap = {
+                        'new_user': '🆕 新用户',
+                        'low_frequency': '🔴 低频用户 (>7天)',
+                        'medium_frequency': '🟡 中频用户 (24h~7天)',
+                        'high_frequency': '🟢 高频用户 (<24h)',
+                    };
+
+                    let html = `
+                        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px;">
+                            <span style="color:#888;">用户类型</span>
+                            <span><strong>${userTypeMap[ctx.user_type] || ctx.user_type}</strong></span>
+                            <span style="color:#888;">触发问候</span>
+                            <span style="color:${ctx.should_greet ? '#2e7d32' : '#c62828'};font-weight:bold;">${ctx.should_greet ? '✅ 是' : '❌ 否'}</span>
+                            <span style="color:#888;">判定原因</span>
+                            <span>${ctx.reason || '-'}</span>
+                    `;
+                    if (ctx.last_interaction) {
+                        const t = new Date(ctx.last_interaction);
+                        html += `
+                            <span style="color:#888;">上次互动</span>
+                            <span>${t.toLocaleString('zh-CN')}</span>
+                        `;
+                    }
+                    if (ctx.hours_since_last !== null && ctx.hours_since_last !== undefined) {
+                        html += `
+                            <span style="color:#888;">距上次</span>
+                            <span>${ctx.hours_since_last.toFixed(1)} 小时</span>
+                        `;
+                    }
+                    html += `
+                            <span style="color:#888;">对话次数</span>
+                            <span>${ctx.conversation_count}</span>
+                    `;
+                    if (ctx.last_topic) {
+                        html += `
+                            <span style="color:#888;">上次话题</span>
+                            <span style="word-break:break-all;">${escapeHtml(ctx.last_topic)}</span>
+                        `;
+                    }
+                    if (ctx.user_tags && ctx.user_tags.length) {
+                        html += `
+                            <span style="color:#888;">用户标签</span>
+                            <span>${ctx.user_tags.map(t => '<span class="tag">' + escapeHtml(t) + '</span>').join(' ')}</span>
+                        `;
+                    }
+                    if (ctx.milestones && ctx.milestones.length) {
+                        html += `
+                            <span style="color:#888;">里程碑</span>
+                            <span>${ctx.milestones.map(m => escapeHtml(m)).join('; ')}</span>
+                        `;
+                    }
+                    html += `<span style="color:#888;">待回复问候</span>
+                            <span>${ctx.has_pending_greeting ? '⚠️ 是（不再重复发送）' : '否'}</span>
+                    `;
+                    html += '</div>';
+
+                    // 问候语
+                    if (ctx.should_greet && ctx.greeting) {
+                        html += `
+                            <div style="margin-top:12px;padding:12px;background:#fff3e0;border-radius:6px;border-left:4px solid #ff6f00;">
+                                <div style="font-size:12px;color:#e65100;margin-bottom:4px;">💬 生成的问候语</div>
+                                <div style="font-size:16px;font-weight:500;color:#333;">${escapeHtml(ctx.greeting)}</div>
+                            </div>
+                        `;
+                    } else if (!ctx.should_greet) {
+                        html += `
+                            <div style="margin-top:12px;padding:12px;background:#f5f5f5;border-radius:6px;border-left:4px solid #9e9e9e;">
+                                <div style="font-size:12px;color:#888;">💬 不触发问候</div>
+                            </div>
+                        `;
+                    }
+
+                    container.style.display = 'block';
+                    content.innerHTML = html;
+                } else {
+                    showStatus('greetingContent', data.message || '检查失败', 'error');
+                    document.getElementById('greetingResult').style.display = 'block';
+                }
+            } catch (e) {
+                showStatus('greetingContent', e.message, 'error');
+                document.getElementById('greetingResult').style.display = 'block';
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
         }
 

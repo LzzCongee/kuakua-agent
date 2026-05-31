@@ -482,3 +482,68 @@ class ChatService:
 
         # 降级：返回默认回复
         return "今天想说点什么？我在听~"
+
+    async def generate_greeting(
+        self,
+        user_type: str,
+        memory_summary: MemorySummary | None = None,
+        last_topic: str | None = None,
+    ) -> str:
+        """
+        根据用户类型和上下文生成主动问候
+
+        用户类型决定了问候的语气和内容：
+        - new_user: 首次打开，引导式夸夸
+        - low_frequency: >7 天未互动，回归问候
+        - medium_frequency: 24h~7d 未互动，日常问候
+        - high_frequency: <24h 不触发
+        """
+        # 构建场景描述
+        type_prompts = {
+            "new_user": "用户是第一次打开夸夸助手，请发一句温暖的欢迎语，让用户感到被欢迎。要求友好、轻松。",
+            "low_frequency": "用户很久没来了（超过7天），请发一句想念式的回归问候，让用户感到被惦记。",
+            "medium_frequency": "用户上次来是1-7天前，请发一句轻松的日常问候，自然不刻意。",
+        }
+        scene_desc = type_prompts.get(user_type, type_prompts["medium_frequency"])
+
+        # 构建记忆上下文（让问候有「它记得我」的感觉）
+        memory_lines: list[str] = []
+        if memory_summary:
+            tags = memory_summary.user_tags or []
+            if tags:
+                memory_lines.append(f"用户标签：{', '.join(tags)}")
+            milestones = memory_summary.milestones or []
+            if milestones:
+                memory_lines.append(f"用户高光：{'；'.join(milestones[:2])}")
+            if memory_summary.prefer_scene:
+                memory_lines.append(f"偏好场景：{memory_summary.prefer_scene}")
+
+        # 如果上次对话有具体话题，优先使用话题上下文
+        if last_topic:
+            memory_lines.append(f"上次聊到：{last_topic}")
+
+        memory_context = "\n".join(memory_lines) if memory_lines else ""
+
+        system_prompt = "你是一个温暖真诚的朋友。请根据用户情况和记忆信息，发一句简短的主动问候。"
+
+        prompt_parts = [f"用户类型：{user_type}"]
+        if memory_context:
+            prompt_parts.append(memory_context)
+        prompt_parts.append(scene_desc)
+        prompt_parts.append("要求：20字以内，口语化，像朋友发微信。根据用户类型决定是否使用适当的表情符号。")
+        prompt = "\n".join(prompt_parts)
+
+        try:
+            content = await self.provider.generate(prompt, system_prompt=system_prompt)
+            if content and content.strip():
+                return content
+        except Exception as e:
+            logger.warning(f"问候生成失败，使用默认回复 | error={e}")
+
+        # 降级默认回复
+        defaults = {
+            "new_user": "欢迎来到夸夸星球～今天有没有什么想和我分享的呀？😊",
+            "low_frequency": "好久不见呀～我一直在这里等你哦✨",
+            "medium_frequency": "今天也想给你一个温暖的抱抱～",
+        }
+        return defaults.get(user_type, "今天想说点什么？我在听～")

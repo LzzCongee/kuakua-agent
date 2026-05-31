@@ -16,8 +16,8 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -56,6 +56,25 @@ router: APIRouter = APIRouter(prefix="/api/chat", tags=["交互式夸夸"])
 
 
 # ---------- 数据结构 ----------
+
+
+@dataclass
+class GreetingContext:
+    """问候上下文，用于决定是否发送主动问候"""
+
+    user_type: str  # new_user / low_frequency / medium_frequency / high_frequency
+    should_greet: bool
+    greeting: str | None = None
+    reason: str = ""
+    last_interaction: datetime | None = None
+    hours_since_last: float | None = None
+    conversation_count: int = 0
+    last_topic: str | None = None
+    has_pending_greeting: bool = False
+    user_tags: list[str] = field(default_factory=list)
+    prefer_scene: str | None = None
+    milestones: list[str] = field(default_factory=list)
+    trace: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -154,6 +173,148 @@ ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 
 
 # ---------- 核心逻辑函数 ----------
+
+
+@router.get("/greeting")
+async def check_greeting(
+    request: Request,
+    service: ChatServiceDep,
+    session: SessionDep,
+    user_id: HeaderUserID,
+    session_id: Annotated[str, Query(description="会话ID")] = "",
+) -> ApiResponse[GreetingContext]:
+    """
+    检查是否需要发送主动问候（随机夸夸触发检测）
+
+    根据用户类型、上次互动时间、对话上下文等判断是否应该发送主动问候，
+    并在需要时生成上下文感知的夸夸问候语。
+
+    规则：
+    - 新用户（首次打开）→ 强制发送引导式夸夸
+    - 低频用户（>7天未互动）→ 自动发送回归问候
+    - 中频用户（24h~7天）→ 自动发送日常问候
+    - 高频用户（<24h）→ 不发送，让用户无缝继续
+    """
+    logger.info(f"问候检查 | user_id={user_id}")
+
+    if not session_id:
+        session_id = f"session_{user_id}"
+
+    memory_service = MemoryService(session)
+    ctx = GreetingContext(
+        user_type="new_user",
+        should_greet=False,
+        reason="初始化",
+    )
+
+    try:
+        # 1. 获取用户偏好（判断是否为新用户）
+        profile = await memory_service.get_user_profile(user_id)
+        if profile:
+            ctx.conversation_count = profile.conversation_count or 0
+            if profile.user_tags:
+                ctx.user_tags = json.loads(profile.user_tags)
+            ctx.prefer_scene = profile.prefer_scene
+
+        # 2. 获取用户最近的会话
+        sessions = await memory_service.get_recent_sessions(
+            user_id, limit=1, session_id=None
+        )
+
+        # 3. 判定用户类型（DB 存储的 datetime 是 offset-naive，需要统一）
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        if not sessions or ctx.conversation_count == 0:
+            # 新用户：无会话历史或无对话记录
+            ctx.user_type = "new_user"
+            ctx.should_greet = True
+            ctx.reason = "新用户首次打开，发送引导式夸夸"
+        else:
+            last_session = sessions[0]
+            last_active = last_session.last_message_at or profile.last_active if profile else last_session.last_message_at
+
+            if last_active:
+                ctx.last_interaction = last_active
+                delta = now - last_active
+                ctx.hours_since_last = delta.total_seconds() / 3600
+
+                # 获取最近消息，检查待回复状态和话题上下文
+                recent_msgs = await memory_service.get_recent_messages(
+                    last_session.session_id, limit=3
+                )
+
+                # 检查是否有未回复的 assistant 消息（待处理问候）
+                if len(recent_msgs) >= 1:
+                    last_msg = recent_msgs[-1]
+                    if last_msg.get("role") == "assistant":
+                        ctx.has_pending_greeting = True
+
+                # 提取上次对话的话题（取最后一条用户消息）
+                for msg in reversed(recent_msgs):
+                    if msg.get("role") == "user" and msg.get("content"):
+                        ctx.last_topic = msg["content"][:80]
+                        break
+
+                # 获取里程碑
+                milestones_raw = await memory_service.get_milestones(user_id, limit=2)
+                ctx.milestones = [m.content for m in milestones_raw if m.content]
+
+                # 按时间间隔分类
+                if ctx.hours_since_last > 168:  # >7天
+                    ctx.user_type = "low_frequency"
+                    if ctx.has_pending_greeting:
+                        ctx.should_greet = False
+                        ctx.reason = "已有未回复的问候，不再重复发送"
+                    else:
+                        ctx.should_greet = True
+                        ctx.reason = f"用户{ctx.hours_since_last:.0f}小时未互动（>7天），发送回归问候"
+                elif ctx.hours_since_last >= 24:  # 24h~7天
+                    ctx.user_type = "medium_frequency"
+                    if ctx.has_pending_greeting:
+                        ctx.should_greet = False
+                        ctx.reason = "已有未回复的问候，不再重复发送"
+                    else:
+                        ctx.should_greet = True
+                        ctx.reason = f"用户{ctx.hours_since_last:.0f}小时未互动（24h~7天），发送日常问候"
+                else:  # <24h
+                    ctx.user_type = "high_frequency"
+                    ctx.should_greet = False
+                    ctx.reason = f"用户{ctx.hours_since_last:.1f}小时前刚互动过（<24h），不主动打扰"
+
+            else:
+                # 有会话但无活跃时间记录
+                ctx.user_type = "new_user"
+                ctx.should_greet = True
+                ctx.reason = "用户有会话记录但无活跃时间，按新用户处理"
+
+        # 4. 如果需要问候，生成个性化的夸夸问候
+        if ctx.should_greet:
+            memory_summary = await _get_user_memory(
+                user_id, session_id, session, ctx.last_topic or ""
+            )
+            ctx.trace["memory_summary_loaded"] = memory_summary is not None
+
+            greeting = await service.generate_greeting(
+                user_type=ctx.user_type,
+                memory_summary=memory_summary,
+                last_topic=ctx.last_topic,
+            )
+            ctx.greeting = greeting
+            ctx.trace["greeting_generated"] = True
+        else:
+            ctx.trace["greeting_generated"] = False
+
+        logger.info(
+            f"问候判定完成 | user_id={user_id} | type={ctx.user_type} | "
+            f"should_greet={ctx.should_greet} | reason={ctx.reason}"
+        )
+
+    except Exception as e:
+        logger.error(f"问候检查异常 | user_id={user_id} | error={e}", exc_info=True)
+        ctx.reason = f"问候检查异常: {e}"
+        ctx.should_greet = False
+
+    return ApiResponse(data=ctx)
 
 
 async def _prepare_chat_request(
