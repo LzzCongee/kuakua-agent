@@ -7,7 +7,7 @@
 """
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ from ...core.logging import get_logger
 logger = get_logger(__name__)
 
 
-class EmotionType(str, Enum):
+class EmotionType(StrEnum):
     """
     情绪类型枚举（与 PRD 一致）
 
