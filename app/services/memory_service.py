@@ -537,6 +537,9 @@ class MemoryService:
 
     # ==================== supermemory 语义记忆 ====================
 
+    # 语义搜索最低分数阈值，低于此分数的结果视为噪声，不注入 prompt
+    SEMANTIC_SCORE_THRESHOLD: float = 0.65
+
     async def _get_semantic_memories(self, user_id: str, current_query: str = "") -> list[str]:
         """
         基于用户当前输入 + 画像标签进行语义搜索，通过 MCP 调用 search_memory
@@ -582,8 +585,24 @@ class MemoryService:
         if not raw_results:
             return []
 
+        # 分数阈值过滤：剔除语义相似度不足的结果，防止噪声记忆污染 prompt
+        raw_scores = [item.get("score", 0) for item in raw_results]
+        filtered = [
+            item for item in raw_results
+            if item.get("score", 0) >= self.SEMANTIC_SCORE_THRESHOLD
+        ]
+        logger.debug(
+            f"语义记忆分数过滤 | total={len(raw_results)} | passed={len(filtered)} | "
+            f"threshold={self.SEMANTIC_SCORE_THRESHOLD} | scores={[round(s, 3) for s in raw_scores]}"
+        )
+        if not filtered:
+            logger.debug("语义记忆查询无结果 | 所有结果低于分数阈值，放弃注入")
+            return []
+
+        raw_results = filtered
+
         # DEBUG: 打印完整 result 结构以便分析
-        logger.info(f"[DEBUG] search_memory raw result: {result}")
+        logger.info(f"[DEBUG] search_memory raw result (filtered): {result}")
 
         # 按用户标签做结果 rerank（标签匹配度高的排前面）
         if user_tags:

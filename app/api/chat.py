@@ -861,6 +861,16 @@ async def _update_session_after_chat_with_debug(
                 if profile_update.last_emotion or profile_update.user_tags or profile_update.prefer_scene:
                     await memory_service.update_user_profile(user_id, profile_update)
 
+                debug_info.extraction = {
+                    "source": extraction_result.source,
+                    "emotion": extraction_result.emotion,
+                    "tags": extraction_result.tags,
+                    "has_milestone": extraction_result.has_milestone,
+                    "milestone_content": extraction_result.milestone_content,
+                    "milestone_importance": extraction_result.milestone_importance,
+                    "scene_hint": extraction_result.scene_hint,
+                }
+
                 # 情绪趋势跟踪（调试模式）
                 current_emotion = extraction_result.emotion if extraction_result else None
                 if current_emotion and current_emotion != "neutral":
@@ -885,16 +895,6 @@ async def _update_session_after_chat_with_debug(
                             )
                         except Exception as e:
                             logger.warning(f"Supermemory 记录失败（调试模式）| error={e}")
-
-                debug_info.extraction = {
-                    "source": extraction_result.source,
-                    "emotion": extraction_result.emotion,
-                    "tags": extraction_result.tags,
-                    "has_milestone": extraction_result.has_milestone,
-                    "milestone_content": extraction_result.milestone_content,
-                    "milestone_importance": extraction_result.milestone_importance,
-                    "scene_hint": extraction_result.scene_hint,
-                }
 
             # 保存到 supermemory 语义记忆
             await memory_service.save_chat_to_supermemory(
