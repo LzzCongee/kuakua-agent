@@ -99,3 +99,34 @@ async def speech_to_text(
     except ASRException as e:
         logger.error(f"ASR 失败 | user_id={user_id} | error={e}")
         return ApiResponse(code=500, message=str(e), data=None)
+
+
+@router.post("/pure")
+async def speech_to_text_pure(
+    request: ASRRequest,
+    user_id: HeaderUserID = None,
+) -> ApiResponse[ASRResponse]:
+    """
+    纯 ASR 语音转文字接口（BigModel Flash）
+
+    使用火山引擎 BigModel Flash ASR 专用端点，不经过 Chat Completions API。
+    返回转写文本和置信度，不返回情绪信息。
+
+    请求体：
+        audio: base64 编码或 data URL 格式的音频字符串
+
+    返回：
+        text: 转写的文本
+        confidence: 置信度（词级平均）
+    """
+    logger.info(f"收到纯 ASR 请求 | user_id={user_id}")
+
+    asr = get_asr_provider()
+
+    try:
+        result = await asr.transcribe_from_base64(request.audio)
+        logger.info(f"纯 ASR 完成 | user_id={user_id} | text={result.text[:30]}...")
+        return ApiResponse(data=ASRResponse.from_result(result))
+    except ASRException as e:
+        logger.error(f"纯 ASR 失败 | user_id={user_id} | error={e}")
+        return ApiResponse(code=500, message=str(e), data=None)
