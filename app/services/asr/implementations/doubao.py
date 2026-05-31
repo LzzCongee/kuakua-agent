@@ -53,9 +53,8 @@ class DoubaoASRProvider(BaseASRProvider):
 
     @classmethod
     def from_config(cls, config: "ModelConfig") -> "DoubaoASRProvider":
-        """从配置创建 Provider 实例"""
-        provider = OpenAICompatibleProvider.from_config(config)
-        return cls(provider=provider)
+        """从 ModelConfig 创建 Provider 实例"""
+        return cls(provider=OpenAICompatibleProvider.from_config(config))
 
     @override
     async def transcribe(

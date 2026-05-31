@@ -16,12 +16,18 @@ result = await asr.transcribe_from_base64(audio_b64, format="mp3")
 print(result.text)
 ```
 
+Provider 类型：
+- bigmodel (默认): BigModel Flash ASR，纯 ASR 接口，词级时间戳+置信度
+- doubao: Doubao-Seed Chat Completions ASR，支持情绪识别
+
 配置（环境变量）：
-- ASR_PROVIDER: ASR 实现类型 (doubao/mock)
-- AI_ASR__API_KEY: API 密钥
-- AI_ASR__BASE_URL: API 端点
-- AI_ASR__MODEL: 模型名称
-- AI_ASR__TIMEOUT: 超时秒数
+- ASR_PROVIDER: ASR 实现类型 (bigmodel/doubao)
+- PURE_ASR__APP_KEY: BigModel Flash API 密钥
+- PURE_ASR__BASE_URL: BigModel Flash ASR 端点
+- PURE_ASR__RESOURCE_ID: 资源 ID
+- PURE_ASR__MODEL: 模型名称
+- AI_ASR__API_KEY: Doubao API 密钥
+- AI_ASR__BASE_URL: Doubao API 端点
 """
 
 import logging
@@ -36,7 +42,7 @@ logger = logging.getLogger(__name__)
 def _get_default_provider() -> str:
     """获取默认 ASR provider"""
     settings = get_settings()
-    return getattr(settings, "asr_provider", "doubao")
+    return getattr(settings, "asr_provider", "bigmodel")
 
 
 @lru_cache(maxsize=1)
@@ -51,19 +57,21 @@ def get_asr_provider() -> BaseASRProvider:
         BaseASRProvider: ASR provider 实例
     """
     from .implementations import DoubaoASRProvider
+    from .implementations.bigmodel_flash import BigModelFlashASRProvider
 
     settings = get_settings()
-    provider_type = getattr(settings, "asr_provider", "doubao")
+    provider_type = getattr(settings, "asr_provider", "bigmodel")
 
     logger.info(f"创建 ASR Provider | type={provider_type}")
 
+    if provider_type == "bigmodel":
+        return BigModelFlashASRProvider.from_config(settings.pure_asr)
+
     if provider_type == "doubao":
-        # 复用 AI vision 配置（因为 Doubao-Seed 支持音频输入）
         return DoubaoASRProvider.from_config(settings.ai_asr)
 
-    # 默认使用 doubao
-    logger.warning(f"未知的 ASR provider 类型: {provider_type}，使用默认的 doubao")
-    return DoubaoASRProvider.from_config(settings.ai_asr)
+    logger.warning(f"未知的 ASR provider 类型: {provider_type}，使用默认的 bigmodel")
+    return BigModelFlashASRProvider.from_config(settings.pure_asr)
 
 
 __all__ = [

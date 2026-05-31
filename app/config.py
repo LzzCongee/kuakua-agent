@@ -37,6 +37,35 @@ class ModelConfig(BaseModel):
     )
 
 
+class PureASRConfig(BaseModel):
+    """纯 ASR 专用配置（使用火山引擎 BigModel Flash ASR API，与 AI 模型配置完全分离）
+
+    新版控制台只需 app_key，不需要 access_key。
+
+    环境变量：
+    - PURE_ASR__APP_KEY: 火山引擎 App Key（新版控制台 API Key）
+    - PURE_ASR__BASE_URL: BigModel Flash ASR 端点
+    - PURE_ASR__RESOURCE_ID: 资源 ID（默认 volc.bigasr.auc_turbo）
+    - PURE_ASR__MODEL: 模型名称（默认 bigmodel）
+    - PURE_ASR__TIMEOUT: 超时秒数（默认 30s）
+    """
+
+    app_key: str = Field(default="", description="火山引擎 App Key（新版控制台 API Key）")
+    base_url: str = Field(
+        default="https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
+        description="BigModel Flash ASR 端点",
+    )
+    resource_id: str = Field(
+        default="volc.bigasr.auc_turbo",
+        description="ASR 资源 ID",
+    )
+    model: str = Field(
+        default="bigmodel",
+        description="ASR 模型名称",
+    )
+    timeout: float = Field(default=30.0, ge=5.0, le=120.0, description="调用超时秒数")
+
+
 class Settings(BaseSettings):
     """
     应用配置类
@@ -100,11 +129,14 @@ class Settings(BaseSettings):
 
     # ASR 语音识别（复用 AI vision 配置，因为 Doubao-Seed 支持音频输入）
     ai_asr: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(
-            model="doubao-seed-2-0-mini-260428",
-            timeout=30.0,
-        ),
-        description="ASR 语音识别模型配置",
+        default_factory=ModelConfig,
+        description="ASR 语音识别模型配置（已废弃，请使用 pure_asr）",
+    )
+
+    # 纯 ASR 专用配置（使用火山引擎 ARK API，与其他 AI 模型配置分离）
+    pure_asr: PureASRConfig = Field(
+        default_factory=PureASRConfig,
+        description="纯 ASR 专用配置（使用火山引擎 ARK API）",
     )
 
     # ==================== AI 记忆提取控制参数 ====================
