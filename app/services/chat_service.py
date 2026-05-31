@@ -111,18 +111,23 @@ class ChatService:
             logger.debug(f"使用默认 Prompt | input_type={input_type}")
         
         # 注入记忆上下文
+        personality_used = getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default'
+
         if memory_summary:
             system_prompt = self._inject_memory(system_prompt, memory_summary)
             logger.debug(f"记忆注入完成 | 场景={memory_summary.prefer_scene} | 标签数={len(memory_summary.user_tags)} | 里程碑数={len(memory_summary.milestones)}")
         else:
             logger.debug("无记忆注入")
 
+        logger.info(f"人格记录 | personality={personality_used} | tone_shift={getattr(memory_summary, 'tone_shift', False) if memory_summary else False}")
+
         # 判断是否使用随机模式
-        if self._should_use_random_mode(request.text, memory_summary):
-            logger.debug("触发随机模式")
+        random_mode_triggered = self._should_use_random_mode(request.text, memory_summary)
+        if random_mode_triggered:
+            logger.info(f"触发随机模式 | personality={personality_used} | mode_type={self._get_random_mode_type(memory_summary)}")
             content = await self._generate_random_mode(
                 request.text or "",
-                getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default',
+                personality_used,
                 getattr(memory_summary, 'humor_taste', None) if memory_summary else None,
             )
             return ChatResponse(
@@ -411,6 +416,47 @@ class ChatService:
 
         # 按概率触发
         return random.random() < trigger_prob
+
+    def _get_random_mode_type(self, memory_summary: MemorySummary | None) -> str:
+        """
+        获取随机模式的类型（用于日志记录）
+
+        根据 humor_taste 返回会选择的随机模式类型。
+        """
+        humor_taste = getattr(memory_summary, 'humor_taste', None) if memory_summary else None
+
+        distribution = [
+            ("witty_teasing", 0.35),
+            ("insightful", 0.25),
+            ("meme", 0.20),
+            ("ironic_warm", 0.20),
+        ]
+
+        if humor_taste == "chill":
+            distribution = [
+                ("witty_teasing", 0.15),
+                ("insightful", 0.35),
+                ("meme", 0.20),
+                ("ironic_warm", 0.30),
+            ]
+        elif humor_taste == "teasing":
+            distribution = [
+                ("witty_teasing", 0.50),
+                ("insightful", 0.15),
+                ("meme", 0.15),
+                ("ironic_warm", 0.20),
+            ]
+
+        rand = random.random()
+        cumulative = 0.0
+        selected_type = "ironic_warm"
+        for mode_type, weight in distribution:
+            cumulative += weight
+            if rand <= cumulative:
+                selected_type = mode_type
+                break
+
+        return selected_type
 
     async def _generate_random_mode(
         self,
