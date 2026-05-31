@@ -476,8 +476,8 @@ async def chat_stream(
                 async for chunk in service.provider.generate_stream(
                     prompt=text_input,
                     system_prompt=prep.system_prompt,
-                    temperature=0.7,
-                    max_tokens=150,
+                    temperature=0.8,
+                    max_tokens=300,
                 ):
                     full_content += chunk
                     yield {

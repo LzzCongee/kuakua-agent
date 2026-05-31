@@ -471,10 +471,10 @@
                         <label>场景</label>
                         <select id="scene">
                             <option value="general">通用</option>
-                            <option value="work">工作</option>
-                            <option value="study">学习</option>
-                            <option value="life">生活</option>
-                            <option value="love">情感</option>
+                            <option value="career">职场/事业</option>
+                            <option value="beauty">颜值/气质</option>
+                            <option value="love">恋爱</option>
+                            <option value="daily">日常</option>
                         </select>
                     </div>
                 </div>
@@ -599,10 +599,10 @@
                             <select id="preferScene">
                                 <option value="">请选择</option>
                                 <option value="general">通用</option>
-                                <option value="work">工作</option>
-                                <option value="study">学习</option>
-                                <option value="life">生活</option>
-                                <option value="love">情感</option>
+                                <option value="career">职场/事业</option>
+                                <option value="beauty">颜值/气质</option>
+                                <option value="love">恋爱</option>
+                                <option value="daily">日常</option>
                             </select>
                         </div>
                     </div>
@@ -630,6 +630,39 @@
                         <div class="form-group">
                             <label>最近情绪</label>
                             <input type="text" id="lastEmotion" placeholder="如：开心、焦虑">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" style="margin-top: 10px;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>人格偏好</label>
+                            <select id="personalityPrefer">
+                                <option value="default">默认（温暖真诚）</option>
+                                <option value="witty">毒舌吐槽（嘴贱心暖）</option>
+                                <option value="chill">淡定慵懒（话少精准）</option>
+                                <option value="enthusiastic">热血中二（夸张戏精）</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>幽默偏好</label>
+                            <select id="humorTaste">
+                                <option value="">请选择</option>
+                                <option value="teasing">调侃毒舌</option>
+                                <option value="insightful">洞察深度</option>
+                                <option value="meme">玩梗段子</option>
+                                <option value="ironic">反差暖心</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label class="debug-toggle" style="margin-left:0;">
+                                <input type="checkbox" id="toneShift" checked> 接受语气变化
+                            </label>
+                            <div style="font-size:12px;color:#888;margin-top:4px;">勾选：AI 可能会搞怪/调侃/不按套路出牌</div>
                         </div>
                     </div>
                 </div>
@@ -1480,6 +1513,9 @@
                     html += `<p><strong>用户标签:</strong> ${(p.user_tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</p>`;
                     html += `<p><strong>避免词汇:</strong> ${(p.avoid_words || []).join(', ') || '-'}</p>`;
                     html += `<p><strong>最近情绪:</strong> ${p.last_emotion || '-'}</p>`;
+                    html += `<p><strong>人格偏好:</strong> ${p.personality_prefer || 'default'}</p>`;
+                    html += `<p><strong>幽默偏好:</strong> ${p.humor_taste || '-'}</p>`;
+                    html += `<p><strong>接受语气变化:</strong> ${p.tone_shift ? '是' : '否'}</p>`;
                     html += `<p><strong>对话次数:</strong> ${p.conversation_count}</p>`;
                     html += `<p><strong>收藏次数:</strong> ${p.favorite_count}</p>`;
                     html += '</div>';
@@ -1499,7 +1535,10 @@
             const userTags = document.getElementById('userTags').value.split(',').map(t => t.trim()).filter(t => t);
             const avoidWords = document.getElementById('avoidWords').value.split(',').map(t => t.trim()).filter(t => t);
             const lastEmotion = document.getElementById('lastEmotion').value || null;
-            
+            const personalityPrefer = document.getElementById('personalityPrefer').value || null;
+            const humorTaste = document.getElementById('humorTaste').value || null;
+            const toneShift = document.getElementById('toneShift').checked;
+
             try {
                 const res = await fetch(`${API_BASE}/api/memory/profile`, {
                     method: 'PUT',
@@ -1512,10 +1551,13 @@
                         prefer_style: preferStyle,
                         user_tags: userTags.length ? userTags : null,
                         avoid_words: avoidWords.length ? avoidWords : null,
-                        last_emotion: lastEmotion
+                        last_emotion: lastEmotion,
+                        personality_prefer: personalityPrefer,
+                        humor_taste: humorTaste,
+                        tone_shift: toneShift,
                     })
                 });
-                
+
                 const data = await res.json();
                 if (data.code === 0) {
                     showStatus('profileResult', '偏好更新成功', 'success');
@@ -1548,6 +1590,8 @@
                     html += `<p><strong>偏好风格:</strong> ${s.prefer_style || '-'}</p>`;
                     html += `<p><strong>用户标签:</strong> ${(s.user_tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</p>`;
                     html += `<p><strong>最近情绪:</strong> ${s.last_emotion || '-'}</p>`;
+                    html += `<p><strong>人格偏好:</strong> ${s.personality_prefer || 'default'}</p>`;
+                    html += `<p><strong>接受语气变化:</strong> ${s.tone_shift ? '是' : '否'}</p>`;
                     html += '</div>';
                     
                     if (s.milestones && s.milestones.length) {
@@ -1827,6 +1871,9 @@
                 memHtml += `<span class="key">当前情绪</span><span class="value">${mem.last_emotion || '-'}</span>`;
                 memHtml += `<span class="key">高光时刻</span><span class="value">${(mem.milestones || []).map(m => escapeHtml(m)).join('; ') || '-'}</span>`;
                 memHtml += `<span class="key">语义记忆</span><span class="value">${(mem.semantic_memories || []).map(m => escapeHtml(m)).join('; ') || '-'}</span>`;
+                memHtml += `<span class="key">人格偏好</span><span class="value">${mem.personality_prefer || 'default'}</span>`;
+                memHtml += `<span class="key">幽默偏好</span><span class="value">${mem.humor_taste || '-'}</span>`;
+                memHtml += `<span class="key">语气变化</span><span class="value">${mem.tone_shift ? '是' : '否'}</span>`;
                 memHtml += '</div>';
                 if (mem.recent_messages && mem.recent_messages.length) {
                     memHtml += '<div style="margin-top:8px;"><strong style="font-size:12px;color:#888;">最近对话：</strong></div>';

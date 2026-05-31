@@ -354,6 +354,15 @@ class MemoryService:
         if data.last_emotion is not None:
             profile.last_emotion = data.last_emotion
             updated_fields.append("last_emotion")
+        if data.personality_prefer is not None:
+            profile.personality_prefer = data.personality_prefer
+            updated_fields.append("personality_prefer")
+        if data.humor_taste is not None:
+            profile.humor_taste = data.humor_taste
+            updated_fields.append("humor_taste")
+        if data.tone_shift is not None:
+            profile.tone_shift = 1 if data.tone_shift else 0
+            updated_fields.append("tone_shift")
 
         # 更新活跃时间和对话计数
         profile.last_active = datetime.now(UTC)
@@ -670,6 +679,11 @@ class MemoryService:
                     avoid_words = json.loads(profile.avoid_words)
                 except (json.JSONDecodeError, TypeError):
                     avoid_words = []
+
+        # 读取人格偏好（新增字段）
+        personality_prefer = profile.personality_prefer if profile and profile.personality_prefer else "default"
+        humor_taste = profile.humor_taste if profile else None
+        tone_shift = bool(profile.tone_shift) if profile else True
         
         logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)}")
 
@@ -704,6 +718,9 @@ class MemoryService:
             milestones=milestone_contents,
             last_emotion=last_emotion,
             semantic_memories=semantic_memories,
+            personality_prefer=personality_prefer,
+            humor_taste=humor_taste,
+            tone_shift=tone_shift,
         )
 
     def format_memory_for_prompt(self, memory: MemorySummary) -> str:

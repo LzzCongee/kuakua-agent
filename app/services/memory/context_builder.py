@@ -147,6 +147,6 @@ class MemoryContext(BaseModel):
             semantic_memories=semantic_memories,
             personality_prefer=getattr(memory_summary, 'personality_prefer', 'default') or 'default',
             humor_taste=getattr(memory_summary, 'humor_taste', None),
-            tone_shift=getattr(memory_summary, 'tone_shift', False) or False,
+            tone_shift=getattr(memory_summary, 'tone_shift', True),
             interaction_count=getattr(memory_summary, 'interaction_count', 0) or 0,
         )

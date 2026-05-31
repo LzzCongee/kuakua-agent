@@ -129,6 +129,9 @@ class UserProfile(Base):
     avoid_words: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
     last_emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)
     emotion_history: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")  # 情绪历史 JSON
+    personality_prefer: Mapped[str | None] = mapped_column(String(20), nullable=True, default="default")
+    humor_taste: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tone_shift: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)  # 1=True, 0=False (SQLite没有bool)
     conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)

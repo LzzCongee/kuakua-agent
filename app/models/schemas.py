@@ -361,6 +361,9 @@ class UserProfileUpdate(BaseModel):
     user_tags: Optional[list[str]] = Field(default=None, description="用户标签列表")
     avoid_words: Optional[list[str]] = Field(default=None, description="避免的词汇")
     last_emotion: Optional[str] = Field(default=None, description="最近情绪")
+    personality_prefer: Optional[str] = Field(default=None, description="喜欢的人格类型：default/witty/chill/enthusiastic")
+    humor_taste: Optional[str] = Field(default=None, description="喜欢的幽默类型：teasing/insightful/meme/ironic")
+    tone_shift: Optional[bool] = Field(default=None, description="是否接受语气变化（有时正经有时搞笑）")
 
 
 class UserProfileResponse(BaseModel):
@@ -396,6 +399,9 @@ class UserProfileResponse(BaseModel):
     conversation_count: int = Field(default=0, description="对话次数")
     favorite_count: int = Field(default=0, description="收藏次数")
     last_active: Optional[datetime] = Field(default=None, description="最后活跃时间")
+    personality_prefer: str = Field(default="default", description="喜欢的人格类型：default/witty/chill/enthusiastic")
+    humor_taste: Optional[str] = Field(default=None, description="喜欢的幽默类型：teasing/insightful/meme/ironic")
+    tone_shift: bool = Field(default=True, description="是否接受语气变化")
 
 
 class MilestoneCreate(BaseModel):
@@ -479,6 +485,6 @@ class MemorySummary(BaseModel):
         description="喜欢的幽默类型：teasing/insightful/meme/ironic"
     )
     tone_shift: bool = Field(
-        default=False,
+        default=True,
         description="是否接受语气转变（有时正经有时搞笑）"
     )

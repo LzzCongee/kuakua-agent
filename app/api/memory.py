@@ -85,6 +85,9 @@ def _profile_to_response(
     conversation_count: int | None,
     favorite_count: int | None,
     last_active: datetime | None,
+    personality_prefer: str = "default",
+    humor_taste: str | None = None,
+    tone_shift: bool = True,
 ) -> UserProfileResponse:
     """将 UserProfile ORM 属性映射为 UserProfileResponse（消除重复的 JSON 解析逻辑）"""
     return UserProfileResponse(
@@ -98,6 +101,9 @@ def _profile_to_response(
         conversation_count=conversation_count or 0,
         favorite_count=favorite_count or 0,
         last_active=last_active,
+        personality_prefer=personality_prefer,
+        humor_taste=humor_taste,
+        tone_shift=tone_shift,
     )
 
 
@@ -143,6 +149,9 @@ async def get_user_profile(
             conversation_count=profile.conversation_count,
             favorite_count=profile.favorite_count,
             last_active=profile.last_active,
+            personality_prefer=profile.personality_prefer or "default",
+            humor_taste=profile.humor_taste,
+            tone_shift=bool(profile.tone_shift),
         )
     )
 
@@ -179,6 +188,9 @@ async def update_user_profile(
             conversation_count=profile.conversation_count,
             favorite_count=profile.favorite_count,
             last_active=profile.last_active,
+            personality_prefer=getattr(profile, 'personality_prefer', 'default') or 'default',
+            humor_taste=getattr(profile, 'humor_taste', None),
+            tone_shift=bool(getattr(profile, 'tone_shift', True)),
         )
     )
 
