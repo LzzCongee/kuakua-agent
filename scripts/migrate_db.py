@@ -156,5 +156,130 @@ def migrate():
     print("\n迁移完成!")
 
 
+def upgrade_topic_preference() -> None:
+    """
+    迁移:为话题偏好个性化功能添加表/列/索引。
+
+    新增/变更:
+      1. messages.topic: VARCHAR(50) DEFAULT 'general' — LLM 自报的回复 topic
+      2. messages.ix_messages_role_content(role, content) 复合索引 — 收藏反查用
+      3. user_topic_preferences 表:user × topic × like_count 聚合
+      4. user_topic_preferences.ix_user_topic_pref_count(user_id, like_count) 索引 — 排序用
+      5. user_topic_preferences.uq_user_topic_pref(user_id, topic) 唯一约束
+      6. user_profiles.topic_preference_snapshot: TEXT NULL — topic 偏好 JSON 缓存
+
+    幂等:可重复执行,已存在的列/表/索引自动跳过。
+
+    设计依据: docs/greeting-topic-personalization-design-v2.md 第四章
+    """
+    if not DB_PATH.exists():
+        print(f"数据库不存在: {DB_PATH}")
+        print("新数据库通过 init_db() 的 create_all 自动建表,无需迁移。")
+        return
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    c = conn.cursor()
+
+    def column_exists(table: str, column: str) -> bool:
+        c.execute(f"PRAGMA table_info({table})")
+        return any(row[1] == column for row in c.fetchall())
+
+    def table_exists(table: str) -> bool:
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        )
+        return c.fetchone() is not None
+
+    def index_exists(index_name: str) -> bool:
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            (index_name,),
+        )
+        return c.fetchone() is not None
+
+    # ========== 1. messages.topic ==========
+    if column_exists("messages", "topic"):
+        print("  [skip] messages.topic 已存在")
+    else:
+        c.execute("ALTER TABLE messages ADD COLUMN topic VARCHAR(50) DEFAULT 'general'")
+        print("  [add]  messages.topic")
+
+    # ========== 2. messages.ix_messages_role_content ==========
+    if index_exists("ix_messages_role_content"):
+        print("  [skip] ix_messages_role_content 已存在")
+    else:
+        c.execute("CREATE INDEX ix_messages_role_content ON messages (role, content)")
+        print("  [add]  ix_messages_role_content 索引")
+
+    # ========== 3-5. user_topic_preferences 表 ==========
+    if table_exists("user_topic_preferences"):
+        print("  [skip] user_topic_preferences 表已存在")
+    else:
+        c.execute("""
+            CREATE TABLE user_topic_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                topic VARCHAR(50) NOT NULL,
+                like_count INTEGER NOT NULL DEFAULT 0,
+                last_liked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                first_liked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("  [add]  user_topic_preferences 表")
+
+        c.execute("""
+            CREATE UNIQUE INDEX uq_user_topic_pref
+            ON user_topic_preferences (user_id, topic)
+        """)
+        print("  [add]  uq_user_topic_pref 唯一索引")
+
+        c.execute("""
+            CREATE INDEX ix_user_topic_pref_count
+            ON user_topic_preferences (user_id, like_count DESC)
+        """)
+        print("  [add]  ix_user_topic_pref_count 排序索引")
+
+        c.execute("""
+            CREATE INDEX ix_user_topic_pref_user
+            ON user_topic_preferences (user_id)
+        """)
+        print("  [add]  ix_user_topic_pref_user 单列索引")
+
+    # ========== 6. user_profiles.topic_preference_snapshot ==========
+    if column_exists("user_profiles", "topic_preference_snapshot"):
+        print("  [skip] user_profiles.topic_preference_snapshot 已存在")
+    else:
+        c.execute("ALTER TABLE user_profiles ADD COLUMN topic_preference_snapshot TEXT")
+        print("  [add]  user_profiles.topic_preference_snapshot")
+
+    conn.commit()
+
+    # ========== 验证 ==========
+    print("\n=== 迁移后验证 ===")
+    if table_exists("messages"):
+        c.execute("PRAGMA table_info(messages)")
+        cols = {row[1] for row in c.fetchall()}
+        print(f"  messages.topic 存在: {'topic' in cols}")
+    if table_exists("user_topic_preferences"):
+        c.execute("PRAGMA table_info(user_topic_preferences)")
+        cols = {row[1] for row in c.fetchall()}
+        print(f"  user_topic_preferences 列: {sorted(cols)}")
+        c.execute("PRAGMA index_list(user_topic_preferences)")
+        idx = [row[1] for row in c.fetchall()]
+        print(f"  user_topic_preferences 索引: {idx}")
+    if table_exists("user_profiles"):
+        c.execute("PRAGMA table_info(user_profiles)")
+        cols = {row[1] for row in c.fetchall()}
+        print(f"  user_profiles.topic_preference_snapshot 存在: {'topic_preference_snapshot' in cols}")
+
+    conn.close()
+    print("\n[ok] topic_preference 迁移完成")
+
+
 if __name__ == "__main__":
-    migrate()
+    if len(sys.argv) > 1 and sys.argv[1] == "upgrade_topic_preference":
+        upgrade_topic_preference()
+    else:
+        migrate()
