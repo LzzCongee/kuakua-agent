@@ -171,10 +171,10 @@ def _wipe_existing_logs() -> None:
         try:
             log_file.unlink()
         except PermissionError:
-            # Windows: 其他进程持有文件锁，回退到截断清空
+            # Windows: 其他进程持有文件锁，回退到 "w" 模式（自带 truncate）
             try:
-                with open(log_file, "w") as f:
-                    f.truncate(0)
+                with open(log_file, "w"):
+                    pass
             except Exception:
                 pass
 
