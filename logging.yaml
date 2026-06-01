@@ -36,9 +36,9 @@ handlers:
     stream: ext://sys.stdout
     filters: [trace_id]
   
-  # 文件处理器（每天轮转，保留 7 天）
+  # 文件处理器（每天轮转，保留 7 天，Windows 兼容）
   file:
-    class: logging.handlers.TimedRotatingFileHandler
+    class: app.core.logging.WindowsSafeTimedRotatingFileHandler
     level: INFO
     formatter: standard
     filename: logs/kuakua-agent.log
@@ -48,10 +48,10 @@ handlers:
     backupCount: 7
     encoding: utf-8
     filters: [trace_id]
-    
-  # 错误日志单独文件（每天轮转，保留 7 天）
+
+  # 错误日志单独文件（每天轮转，保留 7 天，Windows 兼容）
   error_file:
-    class: logging.handlers.TimedRotatingFileHandler
+    class: app.core.logging.WindowsSafeTimedRotatingFileHandler
     level: ERROR
     formatter: detailed
     filename: logs/kuakua-agent-error.log
@@ -79,6 +79,17 @@ loggers:
   sqlalchemy.engine:
     level: WARNING
     handlers: [file]
+    propagate: false
+
+  # MCP SDK 日志（SSE 断连是预期行为，不需要完整 traceback）
+  mcp:
+    level: WARNING
+    handlers: [console, file]
+    propagate: false
+
+  httpx:
+    level: WARNING
+    handlers: [console, file]
     propagate: false
 
 # 根日志记录器
