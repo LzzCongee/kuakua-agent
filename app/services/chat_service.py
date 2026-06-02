@@ -321,7 +321,7 @@ class ChatService:
 
         if not raw or not raw.strip():
             logger.warning(f"AI 返回空内容,使用默认回复 | text={text[:30]}...")
-            return "我是一个夸夸小助手,专注于发现你身上的闪光点~ 你想让我夸你什么呢？", "general"
+            return "我是一个夸夸小助手,专注于发现你身上的闪光点~ 随时在听你分享。", "general"
 
         reply, topic = parse_chat_response(raw)
         logger.debug(f"JSON 解析 | topic={topic} | reply_len={len(reply)}")
