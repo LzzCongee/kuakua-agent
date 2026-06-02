@@ -439,27 +439,58 @@ async def chat(self, request: ChatRequest, ...) -> ChatResponse:
 | 搞笑回复质量参差 | 中 | 低 | 通过评测反馈持续优化 prompt |
 ---
 
-## 六、实施记录（2026-05-31 更新）
+## 六、实施记录
 
-### 6.1 已完成代码改动 ✅
+### 6.1 已完成代码改动 ✅（2026-05-31 首批 + 2026-06-02 人格注入补全）
 
-| 改动 | 文件 |
-|------|------|
-| templates.toml 增加 [personalities] 和 [random_modes] 配置 | app/prompts/templates.toml |
-| templates.py 增加 get_personality()、get_random_mode_config()、get_random_mode_prompt() | app/prompts/templates.py |
-| MemoryContext 增加 personality_prefer/humor_taste/tone_shift/interaction_count 字段 | app/services/memory/context_builder.py |
-| MemorySummary 增加 personality_prefer/humor_taste/tone_shift 字段 | app/models/schemas.py |
-| chat_service.py 增加 _should_use_random_mode() 和 _generate_random_mode() 方法 | app/services/chat_service.py |
-| chat_service.py 实现人格注入 _inject_personality() 方法 | app/services/chat_service.py |
-| chat_service.py chat() 方法支持人格注入和随机模式触发 | app/services/chat_service.py |
-| api/chat.py _inject_memory_to_prompt() 支持人格注入 | app/api/chat.py |
-| to_prompt_string() 输出人格偏好和幽默偏好信息 | app/services/memory/context_builder.py |
+| 改动 | 文件 | 落地时间 |
+|------|------|---------|
+| templates.toml 增加 [personalities] 和 [random_modes] 配置 | app/prompts/templates.toml | 2026-05-31 |
+| templates.py 增加 get_personality()、get_random_mode_config()、get_random_mode_prompt() | app/prompts/templates.py | 2026-05-31 |
+| MemoryContext 增加 personality_prefer/humor_taste/tone_shift/interaction_count 字段 | app/services/memory/context_builder.py | 2026-05-31 |
+| MemorySummary 增加 personality_prefer/humor_taste/tone_shift 字段 | app/models/schemas.py | 2026-05-31 |
+| chat_service.py 增加 _should_use_random_mode() 和 _generate_random_mode() 方法 | app/services/chat_service.py | 2026-05-31 |
+| **chat_service.py 实现 _inject_personality() 方法**（拼【人格模式】块到 system_prompt 末尾） | app/services/chat_service.py | **2026-06-02** |
+| **chat_service.py chat() 方法调用 _inject_personality() 注入主流聊天 system_prompt** | app/services/chat_service.py | **2026-06-02** |
+| **chat_service.py generate_greeting() 也按 personality 切换 system_prompt** | app/services/chat_service.py | **2026-06-02** |
+| **chat_service.py generate_greeting() topic 渲染修复(纯主动声明不显示"累计 0 次")** | app/services/chat_service.py | **2026-06-02** |
+| to_prompt_string() 输出人格偏好和幽默偏好信息(弱提示) | app/services/memory/context_builder.py | 2026-05-31 |
+
+**2026-06-02 修复要点**(回应早期 6.1 的"虚假记录"):
+- 旧的"chat_service.py 实现人格注入 _inject_personality() 方法"和"chat() 方法支持人格注入"在 2026-05-31 批次**只是文字记录,代码未实装**(主聊天 system_prompt 仍硬编码 default)
+- 2026-06-02 补全:_inject_personality 真正调用,且 apply 到 chat() 和 generate_greeting() 两条路径
+- get_personality() 改签名为 `dict | None`,未知人格返回 None(不再回退 default,避免误注入)
 
 ### 6.2 验证状态
 
-- Python 语法验证：通过 ✅
-- Ruff lint 检查：全部通过 ✅（本次修改的文件）
-- 函数导入/调用测试：通过 ✅
+| 验证项 | 状态 |
+|--------|------|
+| Python 语法验证 | 通过 ✅ |
+| Ruff lint 检查 | 通过 ✅（本次修改的文件） |
+| 函数导入/调用测试 | 通过 ✅ |
+| **人格注入单元测试(12 个)** `tests/test_personality_injection.py` | **通过 ✅**(2026-06-02 新增) |
+| 既有 topic 偏好测试 `tests/test_topic_preference_service.py`(18 个) | 通过 ✅ |
+| 既有 E2E `scripts/tmp_test/test_topic_declared_e2e.py`(4 case) | 通过 ✅ |
+
+### 6.3 主聊天路径人格偏移生效链(2026-06-02 修复后)
+
+```
+UserProfile.personality_prefer
+        ↓
+MemoryService.get_memory_summary
+        ↓
+MemorySummary.personality_prefer
+        ↓
+ChatService.chat() 入口
+        ↓
+system_prompt = get_chat_prompt(input_type)["system"]
+        ↓
+system_prompt = _inject_personality(system_prompt, personality_prefer)  ← 新增
+        ↓
+provider.generate(prompt, system_prompt=...)  ← 人格已注入
+```
+
+问候路径相同结构,`generate_greeting()` 入口也调 `_inject_personality`。
 
 ---
 

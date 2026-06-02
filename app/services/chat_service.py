@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Literal
 from ..config import ModelConfig
 from ..core.logging import get_logger
 from ..models.schemas import ChatRequest, ChatResponse, MemorySummary, PromptContent
-from ..prompts.templates import get_chat_prompt, get_random_mode_config, get_random_mode_prompt
+from ..prompts.templates import get_chat_prompt, get_personality, get_random_mode_config, get_random_mode_prompt
 from ..providers.base import BaseAIProvider
 
 logger = get_logger(__name__)
@@ -201,6 +201,14 @@ class ChatService:
             system_prompt = prompt_template["system"]
             logger.debug(f"使用默认 Prompt | input_type={input_type}")
 
+        # 人格注入(可选)— 拼到 system_prompt 末尾
+        # 仅当 personality_prefer 非 default 时追加,确保基础模板稳定可缓存
+        personality_used = (
+            getattr(memory_summary, "personality_prefer", "default")
+            if memory_summary else "default"
+        )
+        system_prompt = self._inject_personality(system_prompt, personality_used)
+
         # 构建记忆上下文（放入 user message，不注入 system_prompt）
         memory_context_str = ""
         if memory_summary:
@@ -212,7 +220,6 @@ class ChatService:
         else:
             logger.debug("无记忆上下文")
 
-        personality_used = getattr(memory_summary, 'personality_prefer', 'default') if memory_summary else 'default'
         logger.info(f"人格记录 | personality={personality_used} | tone_shift={getattr(memory_summary, 'tone_shift', False) if memory_summary else False}")
 
         # 判断是否使用随机模式
@@ -261,6 +268,26 @@ class ChatService:
             image_desc=image_desc,
             created_at=datetime.now(UTC)
         )
+
+    @staticmethod
+    def _inject_personality(system_prompt: str, personality: str) -> str:
+        """
+        把用户人格偏好拼到 system_prompt 末尾(仅非 default 时)。
+
+        设计依据: docs/greeting-personality-design.md §3.1.3
+        - default / 空值 / 未知值: 不动 system_prompt(保持基础模板稳定可缓存)
+        - witty/chill/enthusiastic: 追加【人格模式】块,带 tone 描述 + role 指令
+        """
+        if not personality or personality == "default":
+            return system_prompt
+        personality_data = get_personality(personality)
+        if not personality_data:
+            return system_prompt
+        tone = personality_data.get("tone", personality)
+        role = personality_data.get("role", "")
+        if not role:
+            return system_prompt
+        return f"{system_prompt}\n\n【人格模式:{tone}】\n{role}"
 
     async def _generate_text_only(
         self, system_prompt: str, text: str, memory_context: str = ""
@@ -662,9 +689,21 @@ class ChatService:
                     topic_name = lead.get("topic", "")
                     intensity = lead.get("intensity", "weak")
                     if topic_name and topic_name != "general":
-                        memory_lines.append(
-                            f"用户偏好话题:{topic_name}(强度 {intensity}, 累计 {topic_pref.get('total_likes', 0)} 次)"
-                        )
+                        total = topic_pref.get("total_likes", 0) or 0
+                        count = lead.get("count", 0) or 0
+                        # 纯主动声明(count=0)不显示"累计 0 次",与 context_builder 5 区块语义一致
+                        if total > 0:
+                            memory_lines.append(
+                                f"用户偏好话题:{topic_name}(强度 {intensity}, 累计 {total} 次)"
+                            )
+                        elif count == 0 and lead.get("declared"):
+                            memory_lines.append(
+                                f"用户主动关注话题:{topic_name}(强度 {intensity})"
+                            )
+                        else:
+                            memory_lines.append(
+                                f"用户偏好话题:{topic_name}(强度 {intensity})"
+                            )
 
         # 如果上次对话有具体话题，优先使用话题上下文
         if last_topic:
@@ -672,7 +711,15 @@ class ChatService:
 
         memory_context = "\n".join(memory_lines) if memory_lines else ""
 
-        system_prompt = "你是一个温暖真诚的朋友。请根据用户情况和记忆信息，发一句简短的主动问候。必须要以问句结尾，自然引导对方分享。"
+        # 人格注入:基础问候 prompt + 用户人格偏好(若非 default)
+        personality_used = (
+            getattr(memory_summary, "personality_prefer", "default")
+            if memory_summary else "default"
+        )
+        base_greeting_prompt = "你是一个温暖真诚的朋友。请根据用户情况和记忆信息，发一句简短的主动问候。必须要以问句结尾，自然引导对方分享。"
+        system_prompt = self._inject_personality(base_greeting_prompt, personality_used)
+        if personality_used != "default":
+            logger.info(f"问候应用人格 | personality={personality_used}")
 
         prompt_parts = [f"用户类型：{user_type}"]
         if memory_context:

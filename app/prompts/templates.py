@@ -78,7 +78,7 @@ def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> 
     }
 
 
-def get_personality(personality: str) -> dict:
+def get_personality(personality: str) -> dict | None:
     """
     获取人格变体配置
 
@@ -86,10 +86,11 @@ def get_personality(personality: str) -> dict:
         personality: 人格类型 (default/witty/chill/enthusiastic)
 
     Returns:
-        dict: 包含 role、tone、trigger_tags 的配置
+        dict | None: 包含 role、tone、trigger_tags 的配置;未知人格返回 None
+        (注意:不再回退到 default,调用方负责处理 default/未知场景)
     """
     personalities = _data.get("personalities", {})
-    return personalities.get(personality, personalities.get("default", {}))
+    return personalities.get(personality)
 
 
 def get_random_mode_config() -> dict:
@@ -127,7 +128,7 @@ def get_random_mode_prompt(
     if mode_type not in categories:
         mode_type = "ironic_warm"
 
-    personality_data = get_personality(personality)
+    personality_data = get_personality(personality) or {}
     tone = personality_data.get("tone", "")
 
     mode_instructions = {
