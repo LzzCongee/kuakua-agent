@@ -44,6 +44,15 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
+
+            # 首次部署时自动初始化目录
+            if [ ! -d "/opt/kuakua-agent/.git" ]; then
+              echo ">> 首次部署，初始化目录..."
+              mkdir -p /opt/kuakua-agent
+              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git /opt/kuakua-agent
+            fi
+
             cd /opt/kuakua-agent
 
             # 拉取最新代码
@@ -72,6 +81,15 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
+
+            # 首次部署时自动初始化目录
+            if [ ! -d "/opt/kuakua-agent/.git" ]; then
+              echo ">> 首次部署，初始化目录..."
+              mkdir -p /opt/kuakua-agent
+              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git /opt/kuakua-agent
+            fi
+
             cd /opt/kuakua-agent
 
             git fetch origin develop
