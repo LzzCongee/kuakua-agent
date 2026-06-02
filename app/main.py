@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import admin, asr, auth, chat, emotion, favorites, memory, quotes
+from .api import admin, asr, auth, chat, emotion, favorites, memory
 from .config import get_settings
 from .core.exceptions import register_exception_handlers
 from .core.logging import get_logger, register_logging_middleware
@@ -115,7 +115,6 @@ register_exception_handlers(app)
 
 # 挂载路由
 app.include_router(auth.router)
-app.include_router(quotes.router)
 app.include_router(favorites.router)
 app.include_router(chat.router)
 app.include_router(asr.router)

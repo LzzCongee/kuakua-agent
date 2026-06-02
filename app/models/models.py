@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..models.database import Base
@@ -30,39 +30,6 @@ class Favorite(Base):
     scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
-
-
-class Prompt(Base):
-    """Prompt 模板表 ORM 模型 - 支持 prompt 热更新"""
-    __tablename__ = "prompts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    scene: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
-    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    user_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    input_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text_only")
-    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
-    updated_by: Mapped[str] = mapped_column(String(100), nullable=False, default="system")
-
-
-class ABTest(Base):
-    """AB 测试配置表 ORM 模型"""
-    __tablename__ = "ab_tests"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    scene: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    prompt_a_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=True)
-    prompt_b_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=True)
-    traffic_ratio: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
-
-    # 关系
-    prompt_a: Mapped[Prompt | None] = relationship("Prompt", foreign_keys=[prompt_a_id])
-    prompt_b: Mapped[Prompt | None] = relationship("Prompt", foreign_keys=[prompt_b_id])
 
 
 class Session(Base):
@@ -140,6 +107,7 @@ class UserProfile(Base):
     conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic_preference_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # topic 偏好 JSON 缓存
+    declared_topics: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户主动声明的话题列表(JSON 数组)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)

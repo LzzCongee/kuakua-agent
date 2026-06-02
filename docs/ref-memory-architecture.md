@@ -611,10 +611,7 @@ class MemoryTemplate:
 ### 4.3 协作命令参考
 
 ```bash
-# 1. 查看所有 prompt
-curl http://localhost:8000/api/admin/prompts \
-  -H "X-Admin-Key: your_admin_key"
-
+# 1. ~~查看所有 prompt~~ (2026-06 已下线)
 # 2. 测试 prompt 效果
 curl -X POST http://localhost:8000/api/memory/eval/run \
   -H "X-Admin-Key: your_admin_key" \

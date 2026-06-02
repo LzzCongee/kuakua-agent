@@ -465,7 +465,7 @@ class MemoryContext:
 | `chat()` 非流式 | ✓ | 用户在主动对话,topic 偏好是引导回复方向的强信号 |
 | `chat_stream()` 流式 | ✓ | 同上,prompt 组装逻辑共用 |
 | `generate_greeting()` | ✓ | 问候语也应结合用户偏好(比如偏好 career 的人,问候可以问"最近工作怎么样") |
-| `quote_service.py` 随机夸夸 | ✗ | 随机夸夸本质是"出乎意料",强加偏好反而破坏随机性 |
+| `quote_service.py` 随机夸夸 | ✗ | 随机夸夸本质是"出乎意料",强加偏好反而破坏随机性。**注:`quote_service` 及 `/api/quotes/*` 已在 2026-06 下线,小程序只保留 `/api/chat/greeting` 和 `/api/chat` 两个入口,本行仅作历史决策记录。** |
 | TTS / 语音 | 待定 | TTS 模块未启用,后续接入时复用 chat 注入 |
 
 ---
@@ -1067,3 +1067,140 @@ python scripts/migrate_db.py upgrade_topic_preference
 | `scripts/migrate_db.py` | 加迁移函数 |
 | `app/static/test.html` | 加测试面板 |
 | `docs/greeting-topic-personalization-design-v2.md` | 本文档 |
+
+---
+
+## 十一、主动声明话题(2026-06-02 增量)
+
+### 11.1 背景
+
+v2 的 topic 偏好完全来自"被动观察"(用户收藏了哪些 AI 回复)。这有两个问题:
+- **冷启动慢**:新用户需要至少 3 次收藏才能看到 prompt 注入
+- **方向被动**:用户即使想"我最近只想要 career 方向的夸夸",也只能等被动信号自然累积
+
+小程序侧有"主动选择关注方向"的交互需求,所以新增一条"主动声明"通道,与被动信号**合并**计算。
+
+### 11.2 数据流
+
+```
+POST /api/memory/topic-interests
+Body: { "topics": ["career", "love", "healing"] }   (最多 5 个)
+                    │
+                    ▼
+        ┌────────────────────────┐
+        │ 过滤 / 去重 / 上限 5    │
+        │ 排除 general 与非法值    │
+        └────────────────────────┘
+                    │
+                    ▼
+UserProfile.declared_topics (TEXT, JSON 数组)
+                    │
+                    ▼
+TopicPreferenceService.set_declared_topics
+                    │ 1) upsert UserProfile
+                    │ 2) refresh_snapshot → 合并写 snapshot
+                    ▼
+topic_preference_snapshot (JSON,新增 declared_topics 字段)
+```
+
+### 11.3 合并算法
+
+主动声明的 topic 在 `compute_preference` 里与被动权重**叠加**:
+
+```
+effective_weight(topic) = decay_weight(topic) + DECLARED_TOPIC_BOOST(2.0) [if declared]
+```
+
+| 场景 | passive weight | boost | effective | intensity | 备注 |
+|------|---------------|-------|-----------|-----------|------|
+| 0 收藏,声明 career | 0 | +2.0 | **2.0** | medium | 纯声明也能过冷启动 |
+| 3 收藏(0d)career,声明 career | 3.0 | +2.0 | **5.0** | strong | 主动叠加 |
+| 3 收藏(0d)career,未声明 career | 3.0 | 0 | **3.0** | medium | 跟旧版一致 |
+
+**冷启动门控升级**:
+- 旧版:`total_likes < 3` → 不返回
+- 新版:`declared_topics 为空 AND total_likes < 3` → 不返回
+- 即:有主动声明时,直接通过冷启动
+
+**主动声明不影响被动数据**:
+- `UserTopicPreference.like_count` 永远由"加/减收藏"维护,声明不增减
+- 取消声明某个 topic(从列表移除)→ `effective_weight` 减去 2.0,但 `UserTopicPreference` 行不动
+- 历史收藏数据**完整保留**,这是用户实打实的点赞历史,跟"是否还想看这个方向"是不同维度
+
+### 11.4 快照结构变化
+
+```diff
+{
+  "topics": [
+-    { "topic": "career", "weight": 3.0, "count": 3, "last_days_ago": 0, "intensity": "medium" }
++    { "topic": "career", "weight": 3.0, "count": 3, "last_days_ago": 0, "intensity": "medium", "declared": false }
+  ],
+  "total_likes": 3,
++  "declared_topics": [],
+  "generated_at": "..."
+}
+```
+
+纯声明的 topic:
+```json
+{ "topic": "healing", "weight": 2.0, "count": 0, "last_days_ago": -1, "intensity": "medium", "declared": true }
+```
+- `count=0` + `last_days_ago=-1` 表示从未收藏,纯靠声明上榜
+- `declared=true` 标记来源,供 5 区块 prompt 区分显示
+
+### 11.5 5 区块 Prompt 适配
+
+| 场景 | 旧版 | 新版 |
+|------|------|------|
+| 0 收藏,3 声明 | (无 5 区块) | `基于用户主动声明` + `career(medium, 主动声明)` |
+| 3 收藏 + 1 声明同 topic | `基于 3 次收藏` + `career(medium, weight=3.0)` | `基于 3 次收藏` + `career(medium, weight=3.0)` (count=3 不显示"主动声明") |
+| 3 收藏 + 1 声明**新** topic | `基于 3 次收藏` + `career(medium, weight=3.0)` | `基于 3 次收藏` + `career(medium, weight=3.0)` + `love(medium, 主动声明)` |
+| 0 收藏,0 声明 | (无 5 区块) | (无 5 区块) |
+
+判定规则:
+- `count > 0` → 显示 `weight=X.X`
+- `count == 0 && declared` → 显示 `主动声明` (避免出现 "weight=2.0 来自 0 收藏" 的矛盾信号)
+- `total_likes > 0` → 显示"基于 X 次收藏"
+- `total_likes == 0 && has_declared` → 显示"基于用户主动声明"
+
+### 11.6 接口定义
+
+```
+PUT  /api/memory/topic-interests
+Body: { "topics": ["career", "love"] }
+Resp: { "code": 0, "data": { "declared_topics": ["career", "love"] } }
+
+GET  /api/memory/topic-interests
+Resp: { "code": 0, "data": { "declared_topics": ["career", "love"] } }
+```
+
+行为:
+- 覆盖式写入(整个数组替换,不会"追加")
+- 非法 topic(`非 ALLOWED_TOPICS` / `general` / `>5 个`)被静默过滤
+- 重复值去重,保留插入顺序
+- 写入后立即刷新 `topic_preference_snapshot`,下一次 chat / greeting 立即生效
+
+### 11.7 决策记录
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 存储位置 | `UserProfile.declared_topics` JSON 列 | 与 `topic_preference_snapshot` / `user_tags` 等保持一致,无 JOIN |
+| 字段名 | `declared_topics`(而非 `prefer_topics` / `interested_topics`) | 与"主动声明"语义对齐;`prefer` 已被 UserProfile.prefer_scene 占用 |
+| 合并权重 | 固定 2.0 | 低于 strong 阈值(5.0),允许被动信号继续超越主动声明;等于 medium 阈值 |
+| 接口路径 | `PUT /api/memory/topic-interests` | 与现有 `/api/memory/*` 用户偏好接口保持前缀一致 |
+| 取消声明 | 不动 UserTopicPreference | "撤销关注" ≠ "撤销点赞",历史是用户的真实表达 |
+| 上限 | 5 个 | 12 个 topic 中筛掉 general 后 11 个,5 个够覆盖多方向用户;再大边际收益低 |
+
+### 11.8 新增/修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `app/models/models.py` | `UserProfile` 新增 `declared_topics` 列 |
+| `app/models/schemas.py` | 新增 `TopicInterestUpdate` / `TopicInterestResponse` |
+| `app/services/topic_preference_service.py` | `set_declared_topics()` + `compute_preference` 合并 + 常量 `DECLARED_TOPIC_BOOST=2.0` |
+| `app/api/memory.py` | `PUT/GET /api/memory/topic-interests` |
+| `app/services/memory/context_builder.py` | 5 区块适配 declared-only 场景 |
+| `app/models/database.py` | `init_db` 加 `_ensure_column` 兜底 ALTER TABLE |
+| `tests/test_topic_preference_service.py` | 新增 6 个单元测试 (declared merge / undeclare / filter) |
+| `scripts/tmp_test/test_topic_declared_e2e.py` | 新增 E2E 测试 |
+| `docs/greeting-topic-personalization-design-v2.md` | 新增第十一章 |

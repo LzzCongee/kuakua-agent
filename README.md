@@ -187,8 +187,6 @@ uv pip install -r requirements.txt \
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/quotes/random` | 随机夸夸（已废弃，改用 `/api/chat/greeting`） |
-| GET | `/api/quotes/scene?type=career` | 场景夸夸 |
 | POST | `/api/chat` | 交互式夸夸（文字/图片） |
 | GET | `/api/favorites` | 收藏列表 |
 | POST | `/api/favorites` | 添加收藏 |

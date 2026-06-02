@@ -27,7 +27,7 @@
 | 记忆格式化为 Prompt | `MemoryService.format_memory_for_prompt()` | ✅ 稳定 | 字符串拼接（待优化） |
 | REST API | `app/api/memory.py` | ✅ 稳定 | /api/memory/* |
 | 结构化日志 + trace_id | `app/core/logging.py` | ✅ 稳定 | RequestLoggingMiddleware |
-| A/B 测试框架 | `app/services/ab_test_service.py` | ✅ 稳定 | 随机/场景分流 |
+| ~~A/B 测试框架~~ | ~~`app/services/ab_test_service.py`~~ | ❌ 已下线 | 2026-06 随 admin 后台无人使用一并下线 |
 | 工厂模式多数据库 | `app/services/memory_factory.py` | ✅ 稳定 | SQL/CloudBase 切换 |
 | MCPClient 基础连接 | `app/core/mcp_client.py` | ✅ 稳定 | SSE 长连接，add/search 已通 |
 

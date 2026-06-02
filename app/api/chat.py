@@ -35,17 +35,14 @@ from ..models.schemas import (
     ChatRequest,
     ChatResponse,
     MemorySummary,
-    PromptContent,
     UserProfileUpdate,
 )
 from ..prompts.templates import get_chat_prompt
 from ..providers.openai_compatible import OpenAICompatibleProvider
-from ..services.ab_test_service import ABTestService
 from ..services.chat_service import ChatService
 from ..services.emotion.middleware import detect_emotion_from_request
 from ..services.memory_extractor import MemoryExtractor
 from ..services.memory_service import MemoryService
-from ..services.prompt_service import PromptService
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -458,11 +455,10 @@ async def _prepare_chat_request(
         )
         return None
 
-    # 获取 system prompt（优先从 AB 测试或数据库）
-    prompt_override = await _try_get_ab_test_prompt(
-        chat_request.scene, user_id, session
-    )
-    prompt_source = "ab_test" if prompt_override else None
+    # 获取 system prompt(从 [multimodal.*] 模板,不再按 scene 路由)
+    prompt_template = get_chat_prompt(input_type)
+    system_prompt = prompt_template["system"]
+    prompt_source = "template"
 
     # 调试模式：提前创建 MCPTracker
     tracker: MCPTracker | None = MCPTracker(mcp_client) if debug else None
@@ -471,19 +467,6 @@ async def _prepare_chat_request(
     memory_summary = await _get_user_memory(
         user_id, session_id, session, audio_text or chat_request.text or "", mcp=tracker
     )
-
-    # 构建 system prompt
-    if prompt_override:
-        system_prompt = prompt_override["system"]
-    else:
-        db_prompt = await _try_get_db_prompt(chat_request.scene, input_type, session)
-        if db_prompt:
-            system_prompt = db_prompt["system"]
-            prompt_source = prompt_source or "db"
-        else:
-            prompt_template = get_chat_prompt(input_type)
-            system_prompt = prompt_template["system"]
-            prompt_source = prompt_source or "template"
 
     # 调试模式：构建调试信息
     debug_info: ChatDebugInfo | None = None
@@ -841,32 +824,6 @@ async def chat_stream(
 # ---------- 辅助函数 ----------
 
 
-async def _try_get_ab_test_prompt(
-    scene: str, user_id: str, session: AsyncSession
-) -> PromptContent | None:
-    """尝试从 AB 测试获取 prompt"""
-    try:
-        ab_service = ABTestService()
-        return await ab_service.get_prompt_for_user(scene, user_id, session)
-    except Exception:
-        logger.warning(f"AB 测试 Prompt 获取降级 | scene={scene} | user_id={user_id}", exc_info=True)
-        return None
-
-
-async def _try_get_db_prompt(
-    scene: str, input_type: str, session: AsyncSession
-) -> PromptContent | None:
-    """尝试从数据库获取 prompt"""
-    try:
-        prompt_service = PromptService()
-        return await prompt_service.get_active_prompt_content(
-            scene, input_type, session
-        )
-    except Exception:
-        logger.warning(f"数据库 Prompt 获取降级 | scene={scene} | input_type={input_type}", exc_info=True)
-        return None
-
-
 async def _get_user_memory(
     user_id: str, session_id: str, session: AsyncSession,
     current_query: str = "", mcp: Any = None,
@@ -960,7 +917,7 @@ async def _update_session_after_chat(
                 message_type=message_type,
                 has_image=has_image,
                 image_desc=response.image_desc,
-                scene=request.scene,
+                scene=response.scene,
             )
             logger.debug(f"添加用户消息 | user_id={user_id} | trace_id={trace_id} | type={message_type}")
 
@@ -1046,7 +1003,7 @@ async def _update_session_after_chat(
                 user_id=user_id,
                 user_message=request.text or "",
                 ai_response=response.content,
-                scene=request.scene,
+                scene=response.scene,
                 emotion=extraction_result.emotion if extraction_result else None,
             )
             logger.debug(f"语义记忆保存完成 | user_id={user_id}")
@@ -1115,7 +1072,7 @@ async def _update_session_after_chat_with_debug(
                 message_type=message_type,
                 has_image=has_image,
                 image_desc=response.image_desc,
-                scene=request.scene,
+                scene=response.scene,
             )
 
             # 存储 AI 回复
@@ -1197,7 +1154,7 @@ async def _update_session_after_chat_with_debug(
                 user_id=user_id,
                 user_message=request.text or "",
                 ai_response=response.content,
-                scene=request.scene,
+                scene=response.scene,
                 emotion=extraction_result.emotion if extraction_result else None,
             )
 

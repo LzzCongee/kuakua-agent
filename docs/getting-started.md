@@ -24,9 +24,8 @@
 kuakua-agent/
 ├── app/                    # 应用主目录
 │   ├── api/               # API 路由层
-│   │   ├── chat.py        # 交互式夸夸接口
-│   │   ├── favorites.py   # 收藏管理接口
-│   │   └── quotes.py      # 夸夸生成接口
+│   │   ├── chat.py        # 交互式夸夸接口(含主动问候)
+│   │   └── favorites.py   # 收藏管理接口
 │   ├── core/              # 核心模块
 │   │   └── exceptions.py  # 全局异常处理
 │   ├── models/            # 数据模型层
@@ -38,9 +37,8 @@ kuakua-agent/
 │   │   ├── base.py        # 基础 Provider 接口
 │   │   └── qwen.py        # 通义千问 Provider
 │   ├── services/          # 业务逻辑层
-│   │   ├── chat_service.py    # 交互式夸夸服务
-│   │   ├── favorite_service.py # 收藏服务
-│   │   └── quote_service.py    # 夸夸生成服务
+│   │   ├── chat_service.py    # 交互式夸夸服务(含主动问候生成)
+│   │   └── favorite_service.py # 收藏服务
 │   ├── config.py          # 应用配置
 │   └── main.py            # 应用入口
 ├── docs/                  # 文档目录
@@ -192,8 +190,7 @@ curl http://localhost:8000/health
 | 接口 | 方法 | 路径 | 说明 |
 |------|------|------|------|
 | 健康检查 | GET | `/health` | 服务状态检查 |
-| 随机夸夸 | GET | `/api/quotes/random` | 获取随机夸夸语录（已废弃，改用 `/api/chat/greeting`） |
-| 场景夸夸 | GET | `/api/quotes/scene` | 获取指定场景的夸夸语录 |
+| 主动问候 | GET | `/api/chat/greeting` | 主动问候生成(替代旧版随机夸夸) |
 | 交互式夸夸 | POST | `/api/chat` | 基于文字/图片生成夸赞 |
 | 收藏列表 | GET | `/api/favorites` | 获取用户收藏列表 |
 | 添加收藏 | POST | `/api/favorites` | 添加夸夸语录到收藏 |
@@ -208,30 +205,14 @@ curl http://localhost:8000/health
 curl -X GET "http://localhost:8000/health"
 ```
 
-#### 2. 获取主动问候（替代旧版随机夸夸）
+#### 2. 获取主动问候
 
 ```bash
 curl -X GET "http://localhost:8000/api/chat/greeting?last_active_at=$(date +%s)000" \
   -H "X-User-ID: your-user-id"
 ```
 
-#### 3. 获取场景夸夸
-
-```bash
-# 事业场景
-curl -X GET "http://localhost:8000/api/quotes/scene?type=career"
-
-# 颜值场景
-curl -X GET "http://localhost:8000/api/quotes/scene?type=beauty"
-
-# 恋爱场景
-curl -X GET "http://localhost:8000/api/quotes/scene?type=love"
-
-# 日常场景
-curl -X GET "http://localhost:8000/api/quotes/scene?type=daily"
-```
-
-#### 4. 交互式夸夸（文字）
+#### 3. 交互式夸夸（文字）
 
 ```bash
 curl -X POST "http://localhost:8000/api/chat" \
@@ -297,9 +278,16 @@ curl -X DELETE "http://localhost:8000/api/favorites?user_id=default"
 }
 ```
 
-### 1. 夸夸生成接口
+### 1. 主动问候接口
 
-#### GET /api/quotes/random
+#### GET /api/chat/greeting
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| session_id | string | 否 | 会话 ID |
+| last_active_at | number | 否 | 上次活跃时间(Unix 毫秒) |
 
 **响应格式：**
 
@@ -308,22 +296,13 @@ curl -X DELETE "http://localhost:8000/api/favorites?user_id=default"
   "code": 0,
   "message": "success",
   "data": {
-    "content": "你今天的状态真好，像阳光一样温暖！",
-    "scene": "general",
-    "created_at": "2024-01-15T10:30:00"
+    "user_type": "light_return",
+    "should_greet": true,
+    "greeting": "回来啦～刚才在忙什么呢？",
+    "reason": "用户 0.5 小时未互动（5min~24h），发送轻问候"
   }
 }
 ```
-
-#### GET /api/quotes/scene
-
-**请求参数：**
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| type | string | 是 | 场景类型：career、beauty、love、daily |
-
-**响应格式：** 同上
 
 ### 2. 交互式夸夸接口
 

@@ -4,10 +4,11 @@ Topic 偏好聚合服务
 负责:
 - 收藏动作 = 对该回复 topic 的点赞,递增 like_count
 - 取消收藏 = 撤销一次认同,递减 like_count
+- 用户主动声明 = 写入 UserProfile.declared_topics,在 compute 时叠加固定 boost
 - 按 user × topic 维度聚合,生成衰减权重后的偏好快照
-- 冷启动门控:总点赞 < 3 时不返回偏好
+- 冷启动门控:total_likes < 3 且无 declared_topics 时不返回偏好
 
-设计依据: docs/greeting-topic-personalization-design-v2.md 第九章
+设计依据: docs/greeting-topic-personalization-design-v2.md 第九章 + 第十一章
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.logging import get_logger
 from ..models.models import UserProfile, UserTopicPreference
+from .chat_service import ALLOWED_TOPICS
 
 logger = get_logger(__name__)
 
@@ -33,6 +35,8 @@ CLEAR_LEAD_RATIO: float = 1.5
 MAX_INJECTED_TOPICS: int = 3
 STRONG_THRESHOLD: float = 5.0
 MEDIUM_THRESHOLD: float = 2.0
+# 用户主动声明的 topic 在合并时的固定 boost(叠加在被动权重之上)
+DECLARED_TOPIC_BOOST: float = 2.0
 
 
 class TopicPreferenceService:
@@ -111,17 +115,39 @@ class TopicPreferenceService:
         now: datetime | None = None,
     ) -> dict[str, Any] | None:
         """
-        计算用户当前 topic 偏好(衰减权重 + 平局规则 + 强度标签)。
+        计算用户当前 topic 偏好(被动衰减权重 + 主动声明 boost + 平局规则 + 强度标签)。
 
         Returns:
-            None — 数据不足或无明显偏好
+            None — 既无 declared_topics 也无足够的被动点赞
             {
-                "topics": [{topic, weight, count, last_days_ago, intensity}, ...],
-                "total_likes": int,
+                "topics": [{topic, weight, count, last_days_ago, intensity, declared}, ...],
+                "total_likes": int,  # 仅被动收藏计数
+                "declared_topics": list[str],  # 用户主动声明的 topic
                 "generated_at": iso str,
             }
         """
         now = now or datetime.utcnow()
+
+        # 1) 读 declared_topics(主动声明)
+        profile_row = (
+            await session.execute(
+                select(UserProfile.declared_topics).where(
+                    UserProfile.user_id == user_id
+                )
+            )
+        ).first()
+        declared_topics: list[str] = []
+        if profile_row and profile_row[0]:
+            try:
+                declared_topics = json.loads(profile_row[0])
+                if not isinstance(declared_topics, list):
+                    declared_topics = []
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"declared_topics JSON 解析失败 | user={user_id}")
+                declared_topics = []
+        declared_set = set(declared_topics)
+
+        # 2) 读 UserTopicPreference(被动)
         rows = (
             await session.execute(
                 select(UserTopicPreference).where(
@@ -130,27 +156,45 @@ class TopicPreferenceService:
             )
         ).scalars().all()
 
-        if not rows:
-            return None
-
         total_likes = sum(r.like_count for r in rows)
-        if total_likes < INJECTION_THRESHOLD_TOTAL:
+
+        # 3) 冷启动门控:declared_topics 非空 OR total_likes >= 3
+        if not declared_topics and total_likes < INJECTION_THRESHOLD_TOTAL:
             return None
 
-        # 1) 衰减权重:weight = count * 0.5^(days_ago / 14)
-        scored: list[dict[str, Any]] = []
+        # 4) 被动权重
+        passive_by_topic: dict[str, dict[str, Any]] = {}
         for r in rows:
             days_ago = max((now - r.last_liked_at).days, 0)
             weight = r.like_count * (0.5 ** (days_ago / HALF_LIFE_DAYS))
-            scored.append({
+            passive_by_topic[r.topic] = {
                 "topic": r.topic,
                 "weight": round(weight, 2),
                 "count": r.like_count,
                 "last_days_ago": days_ago,
-            })
+                "declared": r.topic in declared_set,
+            }
+
+        # 5) 合并:被声明的 topic 叠加 boost,未收藏的声明 topic 直接以 boost 入榜
+        scored: list[dict[str, Any]] = []
+        for info in passive_by_topic.values():
+            if info["declared"]:
+                info["weight"] = round(info["weight"] + DECLARED_TOPIC_BOOST, 2)
+            scored.append(info)
+        for t in declared_topics:
+            if t not in passive_by_topic:
+                scored.append({
+                    "topic": t,
+                    "weight": DECLARED_TOPIC_BOOST,
+                    "count": 0,
+                    "last_days_ago": -1,  # 表示从未收藏
+                    "declared": True,
+                })
         scored.sort(key=lambda x: -x["weight"])
 
-        # 2) 平局规则
+        # 6) 平局规则
+        if not scored:
+            return None
         if len(scored) == 1:
             lead_topics = scored
         elif scored[0]["weight"] >= CLEAR_LEAD_RATIO * scored[1]["weight"]:
@@ -158,7 +202,7 @@ class TopicPreferenceService:
         else:
             lead_topics = scored[:MAX_INJECTED_TOPICS]
 
-        # 3) 强度标签
+        # 7) 强度标签
         for t in lead_topics:
             if t["weight"] >= STRONG_THRESHOLD:
                 t["intensity"] = "strong"
@@ -170,8 +214,57 @@ class TopicPreferenceService:
         return {
             "topics": lead_topics,
             "total_likes": total_likes,
+            "declared_topics": declared_topics,
             "generated_at": now.isoformat(),
         }
+
+    async def set_declared_topics(
+        self,
+        user_id: str,
+        topics: list[str],
+        session: AsyncSession,
+    ) -> list[str]:
+        """
+        覆盖式设置用户主动声明的 topic 列表。
+
+        流程:
+        1) 过滤 + 去重(只保留 ALLOWED_TOPICS 之一,排除 general)
+        2) 写入 UserProfile.declared_topics(无 profile 则创建)
+        3) 刷新 snapshot(合并后的新权重)
+
+        Args:
+            user_id: 用户 ID
+            topics: 用户提交的 topic 列表(可能含非法值)
+            session: 异步 DB 会话(调用方负责 commit)
+
+        Returns:
+            list[str]: 过滤后实际生效的 topic 列表
+        """
+        # 1) 过滤 + 去重(保留插入顺序)
+        valid_topics = list(dict.fromkeys(
+            t for t in topics if t in ALLOWED_TOPICS and t != "general"
+        ))
+        json_value = json.dumps(valid_topics, ensure_ascii=False) if valid_topics else None
+
+        # 2) upsert UserProfile
+        profile = (
+            await session.execute(
+                select(UserProfile).where(UserProfile.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+        if profile:
+            profile.declared_topics = json_value
+        else:
+            profile = UserProfile(user_id=user_id, declared_topics=json_value)
+            session.add(profile)
+        await session.flush()
+        logger.info(
+            f"主动声明 topic 已更新 | user={user_id} | topics={valid_topics}"
+        )
+
+        # 3) 刷新 snapshot(同事务内)
+        await self.refresh_snapshot(user_id, session)
+        return valid_topics
 
     async def refresh_snapshot(
         self, user_id: str, session: AsyncSession

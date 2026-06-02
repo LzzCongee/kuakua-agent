@@ -23,34 +23,6 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class QuoteResponse(BaseModel):
-    """
-    夸夸语录响应模型
-
-    用于返回生成的夸夸内容
-    """
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()},
-        json_schema_extra={
-            "examples": [
-                {
-                    "content": "拖了两周还能坚持找到答案，这份不放弃的劲儿挺难得的。",
-                    "scene": "career",
-                    "created_at": "2025-05-13T12:00:00+00:00",
-                }
-            ]
-        },
-    )
-    
-    content: str = Field(..., description="夸夸语录内容")
-    scene: str = Field(
-        default="general",
-        description="场景标签：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
-    )
-    created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
-
-
 class FavoriteCreate(BaseModel):
     """
     创建收藏请求模型
@@ -179,7 +151,12 @@ class ChatRequest(BaseModel):
     )
     scene: str = Field(
         default="general",
-        description="场景标签，可选值：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+        description=(
+            "用户进会话时选的入口场景(用户意图)。"
+            "⚠️ 这是用户意图,不是内容 topic,不参与 prompt 路由。"
+            "真正的内容 topic 由 LLM 自报(见 Message.topic)。"
+            "可取值:general, career, beauty, love, daily"
+        ),
     )
 
     @model_validator(mode='after')
@@ -235,81 +212,6 @@ class ChatResponse(BaseModel):
     is_random_mode: bool = Field(default=False, description="是否为随机模式生成的回复（A/B 测试埋点）")
     created_at: datetime = Field(default_factory=_utc_now, description="创建时间")
     debug: Optional[ChatDebugInfo] = Field(default=None, description="调试信息（仅 debug=true 时返回）")
-
-
-# ==================== Admin 相关模型 ====================
-
-
-class PromptUpdate(BaseModel):
-    """更新 Prompt 请求模型"""
-    system_prompt: str = Field(..., min_length=1, description="系统提示词")
-    user_prompt: str = Field(default="", description="用户提示词")
-    input_type: str = Field(default="text_only", description="输入类型")
-    updated_by: str = Field(default="admin", description="更新者")
-
-
-class PromptResponse(BaseModel):
-    """Prompt 响应模型"""
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
-    )
-
-    id: int = Field(..., description="Prompt ID")
-    scene: str = Field(..., description="场景标识")
-    system_prompt: str = Field(..., description="系统提示词")
-    user_prompt: str = Field(default="", description="用户提示词")
-    input_type: str = Field(default="text_only", description="输入类型")
-    version: int = Field(default=1, description="版本号")
-    is_active: bool = Field(default=True, description="是否激活")
-    updated_at: Optional[datetime] = Field(default=None, description="更新时间")
-    updated_by: str = Field(default="system", description="更新者")
-
-
-class PromptTestRequest(BaseModel):
-    """Prompt 测试请求模型"""
-    test_input: str = Field(..., min_length=1, description="测试输入文本")
-    temperature: float = Field(default=0.7, ge=0, le=2, description="采样温度")
-
-
-class PromptTestResponse(BaseModel):
-    """Prompt 测试响应模型"""
-    output: str = Field(..., description="AI 生成输出")
-    scene: str = Field(..., description="场景标识")
-    prompt_version: int = Field(..., description="Prompt 版本号")
-
-
-class ABTestCreate(BaseModel):
-    """创建 AB 测试请求模型"""
-    name: str = Field(..., min_length=1, description="测试名称")
-    scene: str = Field(..., min_length=1, description="场景标识")
-    prompt_a_id: int = Field(..., description="对照组 Prompt ID")
-    prompt_b_id: int = Field(..., description="实验组 Prompt ID")
-    traffic_ratio: float = Field(default=0.5, ge=0, le=1, description="实验组流量比例")
-
-
-class ABTestUpdate(BaseModel):
-    """更新 AB 测试请求模型"""
-    name: Optional[str] = Field(default=None, description="测试名称")
-    traffic_ratio: Optional[float] = Field(default=None, ge=0, le=1, description="实验组流量比例")
-    status: Optional[str] = Field(default=None, description="状态: running/stopped")
-
-
-class ABTestResponse(BaseModel):
-    """AB 测试响应模型"""
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={datetime: lambda v: v.isoformat()}
-    )
-
-    id: int = Field(..., description="测试 ID")
-    name: str = Field(..., description="测试名称")
-    scene: str = Field(..., description="场景标识")
-    prompt_a_id: int = Field(..., description="对照组 Prompt ID")
-    prompt_b_id: int = Field(..., description="实验组 Prompt ID")
-    traffic_ratio: float = Field(..., description="实验组流量比例")
-    status: str = Field(..., description="状态")
-    created_at: Optional[datetime] = Field(default=None, description="创建时间")
 
 
 # ==================== 记忆模块相关模型 ====================
@@ -427,6 +329,39 @@ class MilestoneResponse(BaseModel):
     importance: int = Field(..., description="重要性")
     is_achieved: bool = Field(default=False, description="是否达成")
     created_at: Optional[datetime] = Field(default=None, description="创建时间")
+
+
+# ==================== 话题主动声明 ====================
+
+
+class TopicInterestUpdate(BaseModel):
+    """
+    主动声明话题偏好请求模型
+
+    覆盖式写入,后端会自动过滤非法 topic(非 ALLOWED_TOPICS 之一)并去重。
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"topics": ["career", "love", "healing"]},
+            ]
+        }
+    )
+    topics: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="用户主动关注的话题列表(最多 5 个,非法值会被过滤)",
+    )
+
+
+class TopicInterestResponse(BaseModel):
+    """
+    主动声明话题偏好响应模型
+    """
+    declared_topics: list[str] = Field(
+        default_factory=list,
+        description="过滤后实际生效的 topic 列表",
+    )
 
 
 class ChatDebugInfo(BaseModel):
