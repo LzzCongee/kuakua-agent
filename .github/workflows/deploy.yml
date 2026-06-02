@@ -72,7 +72,8 @@ jobs:
             git pull origin main
 
             # 停止旧容器，重新构建并启动
-            docker compose down
+            docker compose down --remove-orphans
+            sleep 2
             docker compose up -d --build app
 
             # 等待健康检查
@@ -123,7 +124,8 @@ jobs:
             git checkout develop
             git pull origin develop
 
-            docker compose down
+            docker compose down --remove-orphans
+            sleep 2
             APP_PORT=8081 docker compose up -d --build app
 
             echo "Staging environment deployed on port 8081"
