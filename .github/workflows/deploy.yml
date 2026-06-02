@@ -65,6 +65,9 @@ jobs:
 
             cd $HOME/kuakua-agent
 
+            # 强制使用 SSH（国内 HTTPS 连 GitHub 不稳定）
+            git remote set-url origin git@github.com:${{ github.repository }}.git
+
             # 拉取最新代码
             git pull origin main
 
@@ -112,6 +115,9 @@ jobs:
             fi
 
             cd $HOME/kuakua-agent-staging
+
+            # 强制使用 SSH（国内 HTTPS 连 GitHub 不稳定）
+            git remote set-url origin git@github.com:${{ github.repository }}.git
 
             git fetch origin develop
             git checkout develop
