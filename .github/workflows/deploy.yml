@@ -74,7 +74,7 @@ jobs:
             # 停止旧容器，重新构建并启动
             docker compose down --remove-orphans
             sleep 2
-            docker compose up -d --build app
+            docker compose up -d --build
 
             # 等待健康检查
             sleep 10
@@ -126,6 +126,6 @@ jobs:
 
             docker compose down --remove-orphans
             sleep 2
-            APP_PORT=8081 docker compose up -d --build app
+            APP_PORT=8081 docker compose up -d --build
 
             echo "Staging environment deployed on port 8081"
