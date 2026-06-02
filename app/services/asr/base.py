@@ -95,16 +95,24 @@ class BaseASRProvider(ABC):
         import base64
 
         # 处理 data URL 格式：data:audio/ogg;base64,xxxxx
+        # 或带 codecs 参数: data:audio/webm;codecs=opus;base64,xxxxx
         audio_data = audio_base64
         audio_format = format or "ogg"
         if audio_base64.startswith("data:audio/"):
             remaining = audio_base64[len("data:audio/") :]
-            semi_colon_idx = remaining.find(";")
-            if semi_colon_idx > 0:
-                audio_format = remaining[:semi_colon_idx]
-                audio_data = remaining[semi_colon_idx + 1 :]  # 移除 ";base64," 前缀
-                if audio_data.startswith("base64,"):
-                    audio_data = audio_data[len("base64,") :]
+            # 查找最后一个 ";base64," 作为分隔，兼容中间有 codecs 参数的情况
+            base64_marker = ";base64,"
+            b64_idx = remaining.find(base64_marker)
+            if b64_idx > 0:
+                # 格式在第一个分号处，但要在去掉 base64 后提取
+                format_part = remaining[:b64_idx]
+                # 如果包含 codecs 参数，只取格式名
+                first_semi = format_part.find(";")
+                audio_format = format_part[:first_semi] if first_semi > 0 else format_part
+                audio_data = remaining[b64_idx + len(base64_marker) :]
+            elif b64_idx == 0:
+                # data:audio/;base64, 没有格式名，用默认格式
+                audio_data = remaining[len(base64_marker) :]
 
         audio = base64.b64decode(audio_data)
         return await self.transcribe(audio, audio_format)
@@ -127,16 +135,20 @@ class BaseASRProvider(ABC):
         import base64
 
         # 处理 data URL 格式：data:audio/ogg;base64,xxxxx
+        # 或带 codecs 参数: data:audio/webm;codecs=opus;base64,xxxxx
         audio_data = audio_base64
         audio_format = format or "ogg"
         if audio_base64.startswith("data:audio/"):
             remaining = audio_base64[len("data:audio/") :]
-            semi_colon_idx = remaining.find(";")
-            if semi_colon_idx > 0:
-                audio_format = remaining[:semi_colon_idx]
-                audio_data = remaining[semi_colon_idx + 1 :]
-                if audio_data.startswith("base64,"):
-                    audio_data = audio_data[len("base64,") :]
+            base64_marker = ";base64,"
+            b64_idx = remaining.find(base64_marker)
+            if b64_idx > 0:
+                format_part = remaining[:b64_idx]
+                first_semi = format_part.find(";")
+                audio_format = format_part[:first_semi] if first_semi > 0 else format_part
+                audio_data = remaining[b64_idx + len(base64_marker) :]
+            elif b64_idx == 0:
+                audio_data = remaining[len(base64_marker) :]
 
         audio = base64.b64decode(audio_data)
         return await self.transcribe_with_emotion(audio, audio_format)

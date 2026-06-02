@@ -14,6 +14,9 @@
 
 import logging
 import logging.config
+import logging.handlers
+import os
+import shutil
 import sys
 import time
 import uuid
@@ -25,6 +28,51 @@ import yaml
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
+# ==================== 自定义 Handler ====================
+
+
+class WindowsSafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """Windows 兼容的 TimedRotatingFileHandler
+
+    os.rename() 在 Windows 上会因文件被其他进程占用而失败（PermissionError）。
+    本 handler 在轮转失败时静默恢复，保证日志系统不崩溃。
+    """
+
+    def rotate(self, source: str, dest: str) -> None:
+        """覆盖 rotate，失败时回退到 copy+delete"""
+        try:
+            os.rename(source, dest)
+        except PermissionError:
+            # Windows: 另一个进程锁定了文件，尝试 copy+delete
+            try:
+                shutil.copy2(source, dest)
+                os.remove(source)
+            except Exception:
+                pass  # 放弃轮转，继续写入原文件
+        except OSError:
+            # 兜底：shutil.move 可以处理跨设备重命名
+            try:
+                shutil.move(source, dest)
+            except Exception:
+                pass
+
+    def doRollover(self) -> None:
+        """覆盖 doRollover，确保轮转失败后 stream 不丢失"""
+        try:
+            super().doRollover()
+        except PermissionError:
+            # 轮转失败（通常是 Windows 文件锁），重新打开原文件继续写
+            if self.stream is None:
+                try:
+                    self.stream = self._open()
+                except Exception:
+                    pass
+            logging.warning(
+                "日志轮转失败（Windows 文件锁），继续写入原文件",
+                stack_info=False,
+            )
+
 
 # ==================== 全局变量 ====================
 
@@ -111,11 +159,24 @@ def _should_wipe_logs() -> bool:
 
 
 def _wipe_existing_logs() -> None:
-    """删除现有日志文件，重新开始"""
+    """清空日志文件内容，重新开始
+
+    优先尝试 unlink 删除文件（Linux 无锁问题），
+    若失败（Windows 文件锁）则回退到 truncate 清空内容。
+    """
     for filename in ["kuakua-agent.log", "kuakua-agent-error.log"]:
         log_file = LOG_DIR / filename
-        if log_file.exists():
+        if not log_file.exists():
+            continue
+        try:
             log_file.unlink()
+        except PermissionError:
+            # Windows: 其他进程持有文件锁，回退到 "w" 模式（自带 truncate）
+            try:
+                with open(log_file, "w"):
+                    pass
+            except Exception:
+                pass
 
 
 def setup_logging(config_path: Optional[Path] = None) -> None:
@@ -182,7 +243,7 @@ def _setup_default_logging() -> None:
     root_logger.addHandler(console_handler)
     
     # 文件处理器（每天轮转，保留 7 天）
-    file_handler = logging.handlers.TimedRotatingFileHandler(
+    file_handler = WindowsSafeTimedRotatingFileHandler(
         LOG_DIR / "kuakua-agent.log",
         when="MIDNIGHT",
         interval=1,
@@ -197,8 +258,9 @@ def _setup_default_logging() -> None:
     file_handler.addFilter(_trace_filter)
     root_logger.addHandler(file_handler)
 
-
-# ==================== 日志记录器获取 ====================
+    # 抑制第三方库的冗长日志
+    for noisy_logger in ("mcp", "httpx", "httpcore"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 def get_logger(name: str) -> logging.Logger:
     """

@@ -33,6 +33,85 @@ _NEGATIVE_EMOTION_KEYWORDS: set[str] = {
     "没意思", "没劲", "算了", "就这样吧",
 }
 
+# 12 个固定 topic(LLM 强制从列表选)
+# 设计依据: docs/greeting-topic-personalization-design-v2.md
+ALLOWED_TOPICS: set[str] = {
+    "general", "self_care", "self_love", "parenting",
+    "career", "beauty", "love", "daily",
+    "healing", "gratitude", "new_day", "rebuild",
+}
+
+# LLM 调用参数(降低温度 + 提升 max_tokens 以保证 JSON 输出完整)
+CHAT_TEMPERATURE: float = 0.3
+CHAT_MAX_TOKENS: int = 500
+
+
+def _extract_first_balanced_json(text: str) -> str | None:
+    """手写括号配对,找到第一个平衡的 {...} 块。
+    处理字符串内花括号、转义符、嵌套对象。
+    """
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth, in_str, escape = 0, False, False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == "\\":
+            escape = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def parse_chat_response(raw: str) -> tuple[str, str]:
+    """从 LLM 输出中解析 (reply, topic)。
+    三级兜底: 严格 JSON → 平衡花括号提取 → 整段当 reply + general。
+    topic 必须是 ALLOWED_TOPICS 之一,否则降级为 general。
+
+    Returns:
+        (reply_text, topic) — reply 永远非空,topic 是 12 个之一或 general
+    """
+    if not raw:
+        return "", "general"
+    raw = raw.strip()
+
+    # 1) 严格 JSON
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict) and "reply" in obj:
+            topic = obj.get("topic", "general")
+            return obj["reply"], topic if topic in ALLOWED_TOPICS else "general"
+    except json.JSONDecodeError:
+        pass
+
+    # 2) 平衡花括号提取(处理 markdown 围栏、嵌入文本等)
+    candidate = _extract_first_balanced_json(raw)
+    if candidate:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict) and "reply" in obj and "topic" in obj:
+                topic = obj["topic"]
+                return obj["reply"], topic if topic in ALLOWED_TOPICS else "general"
+        except json.JSONDecodeError:
+            pass
+
+    # 3) 兜底: 整段当 reply,topic = general
+    return raw, "general"
+
+
 if TYPE_CHECKING:
     from ..services.memory_service import MemoryService
 
@@ -156,11 +235,12 @@ class ChatService:
 
         # 根据输入类型调用不同的生成方法
         image_desc = None
+        topic = "general"
         if input_type == "text_only":
             text_content = request.text or ""
             logger.debug("开始纯文字生成")
-            content = await self._generate_text_only(system_prompt, text_content, memory_context_str)
-            logger.debug(f"纯文字生成完成 | content_length={len(content)}")
+            content, topic = await self._generate_text_only(system_prompt, text_content, memory_context_str)
+            logger.debug(f"纯文字生成完成 | content_length={len(content)} | topic={topic}")
         else:
             logger.debug(f"开始多模态生成 | text={has_text} | image={has_image}")
             multimodal_result = await self._generate_multimodal(
@@ -171,17 +251,20 @@ class ChatService:
             )
             content = multimodal_result["content"]
             image_desc = multimodal_result.get("image_desc")
-            logger.debug(f"多模态生成完成 | content_length={len(content)} | has_desc={image_desc is not None}")
+            topic = multimodal_result.get("topic", "general")
+            logger.debug(f"多模态生成完成 | content_length={len(content)} | topic={topic} | has_desc={image_desc is not None}")
 
         return ChatResponse(
             content=content,
-            scene=request.scene,
+            scene=topic,  # 改用 LLM 自报 topic,不再用 request.scene
             has_image=has_image,
             image_desc=image_desc,
             created_at=datetime.now(UTC)
         )
 
-    async def _generate_text_only(self, system_prompt: str, text: str, memory_context: str = "") -> str:
+    async def _generate_text_only(
+        self, system_prompt: str, text: str, memory_context: str = ""
+    ) -> tuple[str, str]:
         """
         纯文字场景生成
 
@@ -202,13 +285,20 @@ class ChatService:
         else:
             user_prompt = f"用户说：{text}"
         logger.debug(f"调用 provider.generate | prompt_length={len(user_prompt)} | text_length={len(text)} | memory={bool(memory_context)}")
-        content = await self.provider.generate(user_prompt, system_prompt=system_prompt)
+        raw = await self.provider.generate(
+            user_prompt,
+            system_prompt=system_prompt,
+            temperature=CHAT_TEMPERATURE,
+            max_tokens=CHAT_MAX_TOKENS,
+        )
 
-        if not content or not content.strip():
-            logger.warning(f"AI 返回空内容，使用默认回复 | text={text[:30]}...")
-            return "我是一个夸夸小助手，专注于发现你身上的闪光点~ 你想让我夸你什么呢？"
+        if not raw or not raw.strip():
+            logger.warning(f"AI 返回空内容,使用默认回复 | text={text[:30]}...")
+            return "我是一个夸夸小助手,专注于发现你身上的闪光点~ 你想让我夸你什么呢？", "general"
 
-        return content
+        reply, topic = parse_chat_response(raw)
+        logger.debug(f"JSON 解析 | topic={topic} | reply_len={len(reply)}")
+        return reply, topic
 
     async def _generate_multimodal(
         self,
@@ -235,8 +325,10 @@ class ChatService:
         # 在 system prompt 末尾追加 JSON 输出要求
         json_instruction = (
             "\n\n【输出格式要求】\n"
-            "请严格按以下 JSON 格式返回，不要添加其他内容：\n"
-            '{"compliment": "你的夸赞文案", "image_desc": "图片的简短客观描述（30字以内，用于记忆上下文）"}'
+            "请严格按以下 JSON 格式返回,不要添加其他内容:\n"
+            '{"compliment": "你的夸赞文案", "image_desc": "图片的简短客观描述(30字以内,用于记忆上下文)", '
+            '"topic": "从以下 12 个话题中选最匹配的一个: general / self_care / self_love / parenting / '
+            'career / beauty / love / daily / healing / gratitude / new_day / rebuild"}'
         )
         full_system_prompt = system_prompt + json_instruction
 
@@ -296,25 +388,32 @@ class ChatService:
         """
         解析多模态生成的 JSON 响应
 
-        尝试从 AI 返回中提取 {"compliment": ..., "image_desc": ...}。
-        解析失败时将整个响应作为夸赞文案，image_desc 为 None。
+        尝试从 AI 返回中提取 {"compliment": ..., "image_desc": ..., "topic": ...}。
+        解析失败时将整个响应作为夸赞文案,image_desc 为 None,topic 用 general。
 
         Args:
             raw: AI 返回的原始文本
 
         Returns:
-            dict: {"content": 夸赞文案, "image_desc": 图片描述或None}
+            dict: {"content": 夸赞文案, "image_desc": 图片描述或None, "topic": 12 话题之一}
         """
         text = raw.strip()
+
+        def _build(data: dict) -> dict[str, str]:
+            topic = str(data.get("topic", "general"))
+            if topic not in ALLOWED_TOPICS:
+                topic = "general"
+            return {
+                "content": str(data["compliment"]),
+                "image_desc": str(data["image_desc"]) if data.get("image_desc") else None,
+                "topic": topic,
+            }
 
         # 尝试直接解析
         try:
             data = json.loads(text)
             if isinstance(data, dict) and "compliment" in data:
-                return {
-                    "content": str(data["compliment"]),
-                    "image_desc": str(data["image_desc"]) if data.get("image_desc") else None,
-                }
+                return _build(data)
         except json.JSONDecodeError:
             pass
 
@@ -324,16 +423,13 @@ class ChatService:
             try:
                 data = json.loads(match.group())
                 if isinstance(data, dict) and "compliment" in data:
-                    return {
-                        "content": str(data["compliment"]),
-                        "image_desc": str(data["image_desc"]) if data.get("image_desc") else None,
-                    }
+                    return _build(data)
             except json.JSONDecodeError:
                 pass
 
         # 降级：整个响应作为夸赞文案
         logger.debug(f"多模态响应 JSON 解析失败，降级为纯文本 | raw={text[:100]}")
-        return {"content": text, "image_desc": None}
+        return {"content": text, "image_desc": None, "topic": "general"}
 
     def _ensure_data_uri(self, image_data: str) -> str:
         """
@@ -555,6 +651,20 @@ class ChatService:
                 memory_lines.append(f"用户高光：{'；'.join(milestones[:2])}")
             if memory_summary.prefer_scene:
                 memory_lines.append(f"偏好场景：{memory_summary.prefer_scene}")
+
+            # topic 偏好(来自收藏聚合,衰减权重后的 lead topics)
+            # 强偏好话题:用 lead topic 直接做"上次聊到",避免被 last_topic 覆盖
+            topic_pref = getattr(memory_summary, "topic_preference", None)
+            if topic_pref:
+                lead_topics = topic_pref.get("topics") or []
+                if lead_topics:
+                    lead = lead_topics[0]
+                    topic_name = lead.get("topic", "")
+                    intensity = lead.get("intensity", "weak")
+                    if topic_name and topic_name != "general":
+                        memory_lines.append(
+                            f"用户偏好话题:{topic_name}(强度 {intensity}, 累计 {topic_pref.get('total_likes', 0)} 次)"
+                        )
 
         # 如果上次对话有具体话题，优先使用话题上下文
         if last_topic:

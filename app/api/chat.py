@@ -693,6 +693,7 @@ async def chat_stream(
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         try:
             full_content = ""
+            resolved_topic: str = chat_request.scene or "general"
             logger.info(f"开始流式生成 | user_id={user_id} | session_id={session_id}")
 
             image_desc = None
@@ -741,21 +742,42 @@ async def chat_stream(
                     "data": json.dumps({"content": full_content}, ensure_ascii=False),
                 }
             else:
+                # 非流式 + 包装架构:一次性拿完整 JSON,解析后切 chunk yield
+                # 依据: docs/greeting-topic-personalization-design-v2.md 第八章
+                yield {
+                    "event": "thinking",
+                    "data": json.dumps({"status": "processing"}, ensure_ascii=False),
+                }
                 if memory_context_str:
                     stream_prompt = f"{memory_context_str}\n\n用户说：{text_input}"
                 else:
                     stream_prompt = text_input
-                async for chunk in service.provider.generate_stream(
+                from ..services.chat_service import (
+                    CHAT_MAX_TOKENS,
+                    CHAT_TEMPERATURE,
+                    parse_chat_response,
+                )
+
+                raw = await service.provider.generate(
                     prompt=stream_prompt,
                     system_prompt=prep.system_prompt,
-                    temperature=0.8,
-                    max_tokens=300,
-                ):
+                    temperature=CHAT_TEMPERATURE,
+                    max_tokens=CHAT_MAX_TOKENS,
+                )
+                reply, topic = parse_chat_response(raw)
+                resolved_topic = topic
+
+                # 伪打字机效果:每 8 字一个 chunk,40ms 间隔
+                chunk_size = 8
+                for i in range(0, len(reply), chunk_size):
+                    await asyncio.sleep(0.04)
+                    chunk = reply[i:i + chunk_size]
                     full_content += chunk
                     yield {
                         "event": "chunk",
                         "data": json.dumps({"content": chunk}, ensure_ascii=False),
                     }
+                full_content = reply
 
             logger.info(
                 f"流式生成完成 | user_id={user_id} | session_id={session_id} | length={len(full_content)}"
@@ -763,7 +785,7 @@ async def chat_stream(
 
             response = ChatResponse(
                 content=full_content,
-                scene=chat_request.scene,
+                scene=resolved_topic,  # 改用 LLM 自报 topic
                 has_image=prep.has_image,
                 image_desc=image_desc,
             )
@@ -790,7 +812,7 @@ async def chat_stream(
                 "event": "done",
                 "data": json.dumps(
                     {
-                        "scene": chat_request.scene,
+                        "scene": resolved_topic,  # 改用 LLM 自报 topic
                         "has_image": prep.has_image,
                         "created_at": datetime.now(UTC).isoformat(),
                     },
@@ -949,7 +971,8 @@ async def _update_session_after_chat(
                 role="assistant",
                 content=response.content,
                 message_type="text",
-                scene=request.scene,
+                scene=response.scene,
+                topic=response.scene,  # LLM 自报 topic,与 scene 同值(都是 12 个之一)
             )
             logger.debug(f"添加AI回复 | user_id={user_id} | trace_id={trace_id}")
 
@@ -1102,7 +1125,8 @@ async def _update_session_after_chat_with_debug(
                 role="assistant",
                 content=response.content,
                 message_type="text",
-                scene=request.scene,
+                scene=response.scene,
+                topic=response.scene,  # LLM 自报 topic
             )
 
             await db_session.commit()

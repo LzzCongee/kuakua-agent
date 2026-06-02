@@ -62,11 +62,16 @@ def _build_system_prompt(role: str, task: str, notes: list[str]) -> str:
     """
     组装完整的 system prompt
 
-    结构: role + task + 核心方法论 + 场景注意事项
+    结构: role + task + 核心方法论 + 输出格式(JSON+topic) + 场景注意事项
     """
     methodology = _data["methodology"]["content"]
     notes_block = "\n".join(f"- {n}" for n in notes)
-    return f"{role}\n{task}\n\n{methodology}\n\n【本场景特别注意】\n{notes_block}\n"
+    output_format = _data.get("output_format", {}).get("block", "")
+    parts = [role, task, "", methodology]
+    if output_format:
+        parts.extend(["", output_format])
+    parts.extend(["", "【本场景特别注意】", notes_block])
+    return "\n".join(parts) + "\n"
 
 
 def get_prompt(scene: SceneType) -> PromptContent:

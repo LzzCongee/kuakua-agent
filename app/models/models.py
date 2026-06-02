@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..models.database import Base
@@ -103,13 +103,18 @@ class Message(Base):
     message_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")  # text / image / mixed
     has_image: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     image_desc: Mapped[str | None] = mapped_column(Text, nullable=True)  # 图片描述（多模态）
-    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # 场景标签
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # 场景标签(用户选的)
+    topic: Mapped[str] = mapped_column(String(50), nullable=False, default="general", index=True)  # 内容 topic(LLM 自报)
     emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 检测到的情绪
     token_usage: Mapped[int | None] = mapped_column(Integer, nullable=True)  # token消耗（可选）
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     # 关系
     session: Mapped[Session] = relationship("Session", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_messages_role_content", "role", "content"),
+    )
 
 
 class UserProfile(Base):
@@ -134,6 +139,7 @@ class UserProfile(Base):
     tone_shift: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)  # 1=True, 0=False (SQLite没有bool)
     conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    topic_preference_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # topic 偏好 JSON 缓存
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
@@ -142,7 +148,7 @@ class UserProfile(Base):
 class Milestone(Base):
     """
     高光里程碑记忆表 ORM 模型
-    
+
     存储用户的小成就、小骄傲、高光时刻，用于夸得真诚不油腻。
     例如：完成项目上线、坚持跑步、学习进步等。
     """
@@ -156,3 +162,25 @@ class Milestone(Base):
     is_achieved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
+class UserTopicPreference(Base):
+    """
+    用户 topic 偏好聚合表
+
+    按 (user_id, topic) 维度统计点赞次数,用于衰减权重计算。
+    设计依据: docs/greeting-topic-personalization-design-v2.md
+    """
+    __tablename__ = "user_topic_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    topic: Mapped[str] = mapped_column(String(50), nullable=False)
+    like_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_liked_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    first_liked_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "topic", name="uq_user_topic_pref"),
+        Index("ix_user_topic_pref_count", "user_id", "like_count"),
+    )

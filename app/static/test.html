@@ -982,7 +982,8 @@
                     console.log('原始录音 MIME:', mimeType, '大小:', audioBlob.size);
 
                     // API 只支持 mp3/wav/m4a，需要转换不支持的格式
-                    const needConvert = !['audio/wav', 'audio/mp3', 'audio/mp4', 'audio/m4a'].includes(mimeType);
+                    const baseFormat = mimeType.split(';')[0].trim();
+                    const needConvert = !['audio/wav', 'audio/mp3', 'audio/mp4', 'audio/m4a'].includes(baseFormat);
                     let dataUrl;
 
                     if (needConvert) {
