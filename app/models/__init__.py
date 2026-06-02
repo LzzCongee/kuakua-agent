@@ -5,13 +5,16 @@
 """
 
 from .database import close_db, get_db, get_session, init_db
-from .models import Base, Favorite
+from .models import Base, Favorite, User
 from .schemas import (
     ApiResponse,
+    AuthResponse,
     ChatRequest,
     ChatResponse,
     FavoriteCreate,
     FavoriteResponse,
+    LoginRequest,
+    RegisterRequest,
 )
 
 __all__ = [
@@ -23,10 +26,15 @@ __all__ = [
     # ORM 模型
     "Base",
     "Favorite",
+    "User",
     # Pydantic 模型
     "FavoriteCreate",
     "FavoriteResponse",
     "ApiResponse",
     "ChatRequest",
     "ChatResponse",
+    # 认证
+    "RegisterRequest",
+    "LoginRequest",
+    "AuthResponse",
 ]

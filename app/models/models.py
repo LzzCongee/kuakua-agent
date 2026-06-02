@@ -8,6 +8,7 @@ SQLAlchemy ORM 模型定义
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,6 +19,23 @@ from ..models.database import Base
 def _utc_now() -> datetime:
     """返回带时区信息的 UTC 时间"""
     return datetime.now(UTC)
+
+
+class User(Base):
+    """用户表 ORM 模型 — 注册/登录认证"""
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: uuid4().hex
+    )
+    username: Mapped[str] = mapped_column(
+        String(32), unique=True, nullable=False, index=True
+    )
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=_utc_now, onupdate=_utc_now
+    )
 
 
 class Favorite(Base):

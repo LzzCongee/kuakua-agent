@@ -66,7 +66,9 @@ app = FastAPI(
         "| `X-Admin-Key` | 管理后台 API Key | 管理接口必填 |\n"
         "| `X-Trace-ID` | 请求追踪 ID，用于日志关联 | 可选 |\n\n"
         "### 登录方式\n\n"
-        "小程序端调用 `wx.login()` 获取 `code`，请求 `POST /api/auth/login` 换取 `openid`，\n"
+        "**Web 端（账号密码）**：调用 `POST /api/auth/register` 注册或 `POST /api/auth/login` 登录，\n"
+        "获取 `user_id` 后，作为 `X-User-ID` 请求头发送后续请求。\n\n"
+        "**小程序端（微信登录）**：调用 `wx.login()` 获取 `code`，请求 `POST /api/login` 换取 `openid`，\n"
         "将返回的 `openid` 作为 `X-User-ID` 请求头发送后续请求。\n\n"
         "### 通用响应格式\n\n"
         "所有接口统一返回 `ApiResponse` 包装：\n\n"
@@ -94,11 +96,17 @@ app = FastAPI(
 )
 
 # 配置 CORS 中间件（前后端分离必需）
-# 注意：allow_origins=["*"] 与 allow_credentials=True 不能同时使用
-# 生产环境应配置具体域名
+# 通过环境变量 ALLOWED_ORIGINS 配置允许的域名，逗号分隔
+# 设为 "*" 时 allow_credentials 必须为 False
+_allowed_origins = (
+    [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+    if settings.allowed_origins != "*"
+    else ["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境建议配置具体域名
+    allow_origins=_allowed_origins,
     allow_credentials=False,  # 与 allow_origins=["*"] 不兼容，设为 False
     allow_methods=["*"],  # 允许所有 HTTP 方法
     allow_headers=["*"],  # 允许所有请求头

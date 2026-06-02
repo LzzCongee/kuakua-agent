@@ -378,6 +378,37 @@ class ChatDebugInfo(BaseModel):
     extraction: Optional[dict[str, Any]] = Field(default=None, description="记忆提取结果")
 
 
+# ==================== 认证模块相关模型 ====================
+
+
+class RegisterRequest(BaseModel):
+    """注册请求模型"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"username": "myuser", "password": "mypassword"}]
+        }
+    )
+    username: str = Field(..., min_length=2, max_length=12, description="用户名")
+    password: str = Field(..., min_length=4, max_length=20, description="密码")
+
+
+class LoginRequest(BaseModel):
+    """账号密码登录请求模型"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"username": "myuser", "password": "mypassword"}]
+        }
+    )
+    username: str = Field(..., description="用户名")
+    password: str = Field(..., description="密码")
+
+
+class AuthResponse(BaseModel):
+    """认证响应模型"""
+    user_id: str = Field(..., description="用户ID")
+    username: str = Field(..., description="用户名")
+
+
 class MemorySummary(BaseModel):
     """用户记忆汇总模型（用于注入Prompt）"""
     model_config = ConfigDict(

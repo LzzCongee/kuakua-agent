@@ -829,6 +829,30 @@
             </div>
             <div id="favoritesResult" style="margin-top: 15px;"></div>
         </div>
+
+        <!-- 注册登录测试面板 -->
+        <div class="panel">
+            <h2>注册登录测试</h2>
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="authUsername" placeholder="请输入用户名">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="authPassword" placeholder="请输入密码">
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <button onclick="doRegister()">注册</button>
+                <button onclick="doLogin()">登录</button>
+            </div>
+            <div id="authResult" style="margin-top: 15px;"></div>
+        </div>
     </div>
 
     <script>
@@ -2430,6 +2454,55 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ========== 注册登录测试 ==========
+        async function doRegister() {
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            if (!username || !password) {
+                showError('authResult', '请输入用户名和密码');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.code === 0) {
+                    showStatus('authResult', `注册成功！用户ID: ${data.data.user_id}`, 'success');
+                } else {
+                    showError('authResult', data.message);
+                }
+            } catch (e) {
+                showError('authResult', e.message);
+            }
+        }
+
+        async function doLogin() {
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            if (!username || !password) {
+                showError('authResult', '请输入用户名和密码');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.code === 0) {
+                    showStatus('authResult', `登录成功！用户: ${data.data.username} (ID: ${data.data.user_id})`, 'success');
+                } else {
+                    showError('authResult', data.message);
+                }
+            } catch (e) {
+                showError('authResult', e.message);
+            }
         }
     </script>
 </body>
