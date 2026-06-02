@@ -1,8 +1,12 @@
 """
 管理后台接口路由模块
 
-提供 Prompt 管理、AB 测试管理、日志查询等管理接口。
+提供日志查询等管理接口。
 所有接口需要 X-Admin-Key 认证。
+
+历史:本文件曾包含 Prompt CRUD 和 AB Test 管理端点,2026-06 随
+PromptService / ABTestService 一并下线(无生产流量)。如需重启用,
+需重新评估路由键(原按 scene 路由,现已废弃)。
 """
 
 from __future__ import annotations
@@ -12,245 +16,17 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
 from ..core.auth import verify_admin_key
 from ..core.logging import LOG_DIR, get_logger
-from ..models.database import get_session
-from ..models.schemas import (
-    ABTestCreate,
-    ABTestResponse,
-    ABTestUpdate,
-    ApiResponse,
-    PromptResponse,
-    PromptTestRequest,
-    PromptTestResponse,
-    PromptUpdate,
-)
-from ..providers.openai_compatible import OpenAICompatibleProvider
-from ..services.ab_test_service import ABTestService
-from ..services.prompt_service import PromptService
+from ..models.schemas import ApiResponse
 
-# 获取日志记录器
 logger = get_logger(__name__)
 
 
-router = APIRouter(prefix="/api/admin", tags=["管理后台"]) 
+router = APIRouter(prefix="/api/admin", tags=["管理后台"])
 
-# ---------- 依赖注入类型别名 ----------
-PromptServiceDep = Annotated[PromptService, Depends(lambda: PromptService())]
-ABTestServiceDep = Annotated[ABTestService, Depends(lambda: ABTestService())]
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 AdminKeyDep = Annotated[str, Depends(verify_admin_key)]
-
-
-# ==================== Prompt CRUD ====================
-
-
-@router.get("/prompts", response_model=ApiResponse[list[PromptResponse]])
-async def list_prompts(
-    prompt_service: PromptServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[list[PromptResponse]]:
-    """
-    列出所有 prompt 模板
-
-    返回数据库中所有已保存的 prompt 模板列表，包含各场景的 system/user prompt 及版本信息。
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info("管理后台 | 列出所有 prompt 模板")
-    prompts = await prompt_service.list_prompts(session)
-    return ApiResponse(data=prompts)
-
-
-@router.get("/prompts/{scene}", response_model=ApiResponse[PromptResponse])
-async def get_prompt(
-    scene: str,
-    prompt_service: PromptServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[PromptResponse]:
-    """
-    获取指定场景的 prompt
-
-    Args:
-        scene: 场景标识，可选值：general, career, beauty, love, daily
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 获取 prompt | scene={scene}")
-    prompt = await prompt_service.get_prompt(scene, session)
-    return ApiResponse(data=prompt)
-
-
-@router.put("/prompts/{scene}", response_model=ApiResponse[PromptResponse])
-async def update_prompt(
-    scene: str,
-    data: PromptUpdate,
-    prompt_service: PromptServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[PromptResponse]:
-    """
-    更新 prompt（热更新，无需重启服务）
-
-    更新指定场景的 system_prompt 和 user_prompt，版本号自动递增。
-
-    Args:
-        scene: 场景标识，可选值：general, career, beauty, love, daily
-        data: 更新数据，包含 system_prompt（必填）和 user_prompt（可选）
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 更新 prompt | scene={scene}")
-    prompt = await prompt_service.update_prompt(scene, data, session)
-    return ApiResponse(data=prompt)
-
-
-@router.post(
-    "/prompts/{scene}/test", response_model=ApiResponse[PromptTestResponse]
-)
-async def test_prompt(
-    scene: str,
-    data: PromptTestRequest,
-    prompt_service: PromptServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[PromptTestResponse]:
-    """
-    测试 prompt 效果
-
-    使用当前激活的 prompt 模板，传入测试文本调用 AI 生成，用于验证 prompt 改动效果。
-
-    Args:
-        scene: 场景标识
-        data: 测试参数，包含 test_input（测试文本）和 temperature（采样温度，0-2）
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 测试 prompt | scene={scene}")
-    # 获取当前 prompt
-    prompt_resp = await prompt_service.get_prompt(scene, session)
-
-    # 调用 AI 生成
-    settings = get_settings()
-    provider = OpenAICompatibleProvider.from_config(settings.ai_chat)
-    output = await provider.generate(
-        prompt=data.test_input,
-        system_prompt=prompt_resp.system_prompt,
-        temperature=data.temperature,
-        max_tokens=100,
-    )
-
-    logger.info(f"管理后台 | prompt 测试完成 | scene={scene}")
-    return ApiResponse(
-        data=PromptTestResponse(
-            output=output,
-            scene=scene,
-            prompt_version=prompt_resp.version,
-        )
-    )
-
-
-# ==================== AB Test CRUD ====================
-
-
-@router.get("/ab-tests", response_model=ApiResponse[list[ABTestResponse]])
-async def list_ab_tests(
-    ab_test_service: ABTestServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[list[ABTestResponse]]:
-    """
-    列出所有 AB 测试
-
-    返回所有 AB 测试实验的配置信息，包括对照组/实验组 prompt、流量比例和状态。
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info("管理后台 | 列出所有 AB 测试")
-    tests = await ab_test_service.list_ab_tests(session)
-    return ApiResponse(data=tests)
-
-
-@router.post("/ab-tests", response_model=ApiResponse[ABTestResponse])
-async def create_ab_test(
-    data: ABTestCreate,
-    ab_test_service: ABTestServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[ABTestResponse]:
-    """
-    创建 AB 测试
-
-    创建一个新的 prompt AB 测试实验，指定对照组和实验组的 prompt ID 及流量分配比例。
-
-    Args:
-        data: 测试配置，包含 name（测试名称）、scene（场景）、prompt_a_id（对照组）、
-              prompt_b_id（实验组）、traffic_ratio（实验组流量比例，0-1，默认 0.5）
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 创建 AB 测试 | scene={data.scene}")
-    ab_test = await ab_test_service.create_ab_test(data, session)
-    return ApiResponse(data=ab_test)
-
-
-@router.put("/ab-tests/{ab_test_id}", response_model=ApiResponse[ABTestResponse])
-async def update_ab_test(
-    ab_test_id: int,
-    data: ABTestUpdate,
-    ab_test_service: ABTestServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[ABTestResponse]:
-    """
-    更新 AB 测试配置
-
-    修改运行中的 AB 测试的名称、流量比例或状态（running/stopped）。
-
-    Args:
-        ab_test_id: AB 测试 ID
-        data: 更新字段（均为可选）
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 更新 AB 测试 | ab_test_id={ab_test_id}")
-    ab_test = await ab_test_service.update_ab_test(ab_test_id, data, session)
-    return ApiResponse(data=ab_test)
-
-
-@router.delete("/ab-tests/{ab_test_id}", response_model=ApiResponse[None])
-async def stop_ab_test(
-    ab_test_id: int,
-    ab_test_service: ABTestServiceDep,
-    session: SessionDep,
-    _admin: AdminKeyDep,
-) -> ApiResponse[None]:
-    """
-    结束 AB 测试
-
-    停止并删除指定的 AB 测试实验。
-
-    Args:
-        ab_test_id: AB 测试 ID
-
-    请求头：
-        X-Admin-Key: 管理后台 API Key（必填）
-    """
-    logger.info(f"管理后台 | 停止 AB 测试 | ab_test_id={ab_test_id}")
-    await ab_test_service.delete_ab_test(ab_test_id, session)
-    return ApiResponse(message="AB 测试已结束")
 
 
 # ==================== 日志查询 ====================

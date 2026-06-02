@@ -713,21 +713,21 @@ class PromptEvaluator:
         return self._calculate_statistics(results)
 ```
 
-### 6.5 A/B 测试与灰度发布
+### 6.5 ~~A/B 测试与灰度发布~~(2026-06 已下线)
 
-在现有 `/api/admin/ab-tests` 基础上，增加评测数据收集：
+~~在现有 `/api/admin/ab-tests` 基础上，增加评测数据收集:~~
 
 ```python
-# 在 chat 接口中记录 A/B 测试结果
+# ~~在 chat 接口中记录 A/B 测试结果~~(已下线)
 async def chat_stream(request, session):
-    # 获取 prompt（可能走 A 组或 B 组）
-    prompt = await self.get_prompt_with_ab(request.scene, request.user_id, session)
-    
+    # 获取 prompt(不再走 A/B,直接用 templates.toml)
+    prompt = get_chat_prompt(input_type)
+
     # 生成输出
     output = await provider.generate(...)
-    
+
     # 记录日志
-    await self.log_ab_test(
+    await self.log_ab_test(  # 该方法已下线
         user_id=request.user_id,
         ab_test_id=prompt.ab_test_id,
         group=prompt.group,  # 'A' or 'B'
@@ -769,46 +769,31 @@ GET /api/admin/ab-tests/{id}/metrics    # 查看关键指标（点赞率、收�
 
 ### 6.2 协作者工作流
 
-#### Prompt 评测队友的日常操作
+#### ~~Prompt 评测队友的日常操作~~(2026-06 已下线)
 
 ```bash
-# 1. 查看所有 prompt
-curl http://localhost:8000/api/admin/prompts \
-  -H "X-Admin-Key: your_admin_key"
-
-# 2. 获取事业场景 prompt
-curl http://localhost:8000/api/admin/prompts/career \
-  -H "X-Admin-Key: your_admin_key"
-
-# 3. 测试 prompt 效果
-curl -X POST http://localhost:8000/api/admin/prompts/career/test \
-  -H "X-Admin-Key: your_admin_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "test_input": "今天完成了一个重要项目",
-    "temperature": 0.8
-  }'
-
-# 4. 更新 prompt
-curl -X PUT http://localhost:8000/api/admin/prompts/career \
-  -H "X-Admin-Key: your_admin_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "system_prompt": "新的 prompt 内容...",
-    "updated_by": "prompt_evaluator"
-  }'
-
-# 5. 创建 A/B 测试
-curl -X POST http://localhost:8000/api/admin/ab-tests \
-  -H "X-Admin-Key: your_admin_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "事业场景 prompt 优化",
-    "scene": "career",
-    "prompt_a_id": 1,
-    "prompt_b_id": 2,
-    "traffic_ratio": 0.5
-  }'
+# ~~以下所有端点已下线(PromptService/ABTestService 整条服务 2026-06 移除)~~
+# 当前 prompt 模板硬编码在 app/prompts/templates.toml,需改 prompt 请直接编辑该文件后调用 reload()
+#
+# ~~# 1. 查看所有 prompt~~
+# curl http://localhost:8000/api/admin/prompts \
+#   -H "X-Admin-Key: your_admin_key"
+#
+# ~~# 2. 获取事业场景 prompt~~
+# curl http://localhost:8000/api/admin/prompts/career \
+#   -H "X-Admin-Key: your_admin_key"
+#
+# ~~# 3. 测试 prompt 效果~~
+# curl -X POST http://localhost:8000/api/admin/prompts/career/test \
+#   ...
+#
+# ~~# 4. 更新 prompt~~
+# curl -X PUT http://localhost:8000/api/admin/prompts/career \
+#   ...
+#
+# ~~# 5. 创建 A/B 测试~~
+# curl -X POST http://localhost:8000/api/admin/ab-tests \
+#   ...
 ```
 
 ### 6.3 记忆管理队友的职责

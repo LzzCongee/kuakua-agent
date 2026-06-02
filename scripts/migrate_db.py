@@ -278,8 +278,63 @@ def upgrade_topic_preference() -> None:
     print("\n[ok] topic_preference 迁移完成")
 
 
+def drop_prompt_abtest() -> None:
+    """
+    迁移:删除已下线的 prompts / ab_tests 表。
+
+    背景:2026-06 admin 后台无人使用,PromptService / ABTestService 整条服务下线。
+    prompts 和 ab_tests 表随之失去作用,删除以清理 schema。
+
+    幂等:可重复执行,表不存在则跳过。
+
+    设计依据: docs/greeting-topic-personalization-design-v2.md 决策记录
+    """
+    if not DB_PATH.exists():
+        print(f"数据库不存在: {DB_PATH}")
+        print("新数据库通过 init_db() 的 create_all 自动建表,无需迁移。")
+        return
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    c = conn.cursor()
+
+    def table_exists(table: str) -> bool:
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        )
+        return c.fetchone() is not None
+
+    for table in ("prompts", "ab_tests"):
+        if not table_exists(table):
+            print(f"  [skip] {table} 表不存在")
+            continue
+        # SQLite 不直接支持 DROP TABLE WITH FK CASCADE,先禁用外键再 drop
+        c.execute("PRAGMA foreign_keys=OFF")
+        c.execute(f"DROP TABLE {table}")
+        c.execute("PRAGMA foreign_keys=ON")
+        print(f"  [drop] {table} 表")
+
+    conn.commit()
+
+    # ========== 验证 ==========
+    print("\n=== 迁移后验证 ===")
+    for table in ("prompts", "ab_tests"):
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        )
+        exists = c.fetchone() is not None
+        print(f"  {table} 表存在: {exists} (应为 False)")
+
+    conn.close()
+    print("\n[ok] drop_prompt_abtest 迁移完成")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "upgrade_topic_preference":
         upgrade_topic_preference()
+    elif len(sys.argv) > 1 and sys.argv[1] == "drop_prompt_abtest":
+        drop_prompt_abtest()
     else:
         migrate()
