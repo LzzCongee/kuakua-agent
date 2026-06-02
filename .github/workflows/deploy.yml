@@ -74,8 +74,10 @@ jobs:
             # 停止旧容器，重新构建并启动
             docker compose down --remove-orphans
             sleep 3
-            # 杀掉任何占用 8080 端口的进程（docker-proxy 可能不会立即释放）
+            # 杀掉占用端口的残留进程（docker-proxy 可能不会立即释放）
             sudo fuser -k 8080/tcp 2>/dev/null || true
+            sudo fuser -k 80/tcp 2>/dev/null || true
+            sudo fuser -k 443/tcp 2>/dev/null || true
             sleep 2
             docker compose up -d --build
 
@@ -130,6 +132,8 @@ jobs:
             docker compose down --remove-orphans
             sleep 3
             sudo fuser -k 8081/tcp 2>/dev/null || true
+            sudo fuser -k 80/tcp 2>/dev/null || true
+            sudo fuser -k 443/tcp 2>/dev/null || true
             sleep 2
             APP_PORT=8081 docker compose up -d --build
 
