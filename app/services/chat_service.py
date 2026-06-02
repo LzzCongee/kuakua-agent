@@ -321,7 +321,7 @@ class ChatService:
 
         if not raw or not raw.strip():
             logger.warning(f"AI 返回空内容,使用默认回复 | text={text[:30]}...")
-            return "我是一个夸夸小助手,专注于发现你身上的闪光点~ 你想让我夸你什么呢？", "general"
+            return "我是一个夸夸小助手,专注于发现你身上的闪光点~ 随时在听你分享。", "general"
 
         reply, topic = parse_chat_response(raw)
         logger.debug(f"JSON 解析 | topic={topic} | reply_len={len(reply)}")
@@ -485,7 +485,7 @@ class ChatService:
 
         触发条件：
         1. 用户 query 中没有明显的求夸意图
-        2. 用户 tone_shift=True，或者有"接受随机"的标签
+        2. 未检测到负面情感关键词
         3. 30% 概率触发（可配置）
         """
         if not text or not text.strip():
@@ -496,13 +496,6 @@ class ChatService:
         for trigger in obvious_praise_triggers:
             if trigger in text:
                 return False
-
-        # 检查用户偏好
-        if memory_summary:
-            if getattr(memory_summary, 'tone_shift', False) is False:
-                return False
-        else:
-            return False
 
         # 情感状态门控：检测负面情感关键词，脆弱情绪时跳过随机模式
         text_lower = text.lower()
@@ -573,34 +566,60 @@ class ChatService:
 
         Args:
             text: 用户输入的文本
-            personality: 人格类型（影响语气）
-            humor_taste: 喜欢的幽默类型
+            personality: 人格类型（主导分布权重）
+            humor_taste: 喜欢的幽默类型（微调分布）
 
         Returns:
             str: 随机模式生成的回复
         """
-        # 根据 humor_taste 调整分布
-        distribution = [
-            ("witty_teasing", 0.35),
-            ("insightful", 0.35),
-            ("meme", 0.05),
-            ("ironic_warm", 0.25),
-        ]
-
-        if humor_taste == "chill":
-            distribution = [
-                ("witty_teasing", 0.15),
-                ("insightful", 0.40),
+        # personality 主导分布，humor_taste 在此基础上微调
+        personality_distributions = {
+            "witty": [
+                ("witty_teasing", 0.55),
+                ("insightful", 0.25),
                 ("meme", 0.05),
-                ("ironic_warm", 0.40),
-            ]
-        elif humor_taste == "teasing":
-            distribution = [
-                ("witty_teasing", 0.50),
-                ("insightful", 0.20),
+                ("ironic_warm", 0.15),
+            ],
+            "chill": [
+                ("witty_teasing", 0.10),
+                ("insightful", 0.50),
+                ("meme", 0.05),
+                ("ironic_warm", 0.35),
+            ],
+            "enthusiastic": [
+                ("witty_teasing", 0.30),
+                ("insightful", 0.30),
+                ("meme", 0.15),
+                ("ironic_warm", 0.25),
+            ],
+            "default": [
+                ("witty_teasing", 0.35),
+                ("insightful", 0.35),
                 ("meme", 0.05),
                 ("ironic_warm", 0.25),
+            ],
+        }
+
+        distribution = personality_distributions.get(personality, personality_distributions["default"])
+
+        # humor_taste 微调分布
+        if humor_taste == "teasing":
+            # 加强 witty_teasing
+            distribution = [
+                ("witty_teasing", min(d[1] + 0.20, 0.70)) if d[0] == "witty_teasing" else (d[0], max(d[1] - 0.05, 0.0))
+                for d in distribution
             ]
+            # 重新归一化
+            total = sum(w for _, w in distribution)
+            distribution = [(t, w / total) for t, w in distribution]
+        elif humor_taste == "chill":
+            # 加强 insightful
+            distribution = [
+                ("insightful", min(d[1] + 0.20, 0.60)) if d[0] == "insightful" else (d[0], max(d[1] - 0.05, 0.0))
+                for d in distribution
+            ]
+            total = sum(w for _, w in distribution)
+            distribution = [(t, w / total) for t, w in distribution]
 
         # 按权重随机选择
         rand = random.random()
@@ -614,7 +633,7 @@ class ChatService:
 
         # 生成 prompt 并调用
         mode_prompt = get_random_mode_prompt(selected_type, text, personality)
-        logger.debug(f"随机模式生成 | type={selected_type} | personality={personality}")
+        logger.debug(f"随机模式生成 | type={selected_type} | personality={personality} | humor={humor_taste}")
 
         try:
             content = await self.provider.generate(mode_prompt)

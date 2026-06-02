@@ -121,7 +121,19 @@ class OpenAICompatibleProvider(BaseAIProvider):
             )
 
             content = response.choices[0].message.content
-            logger.debug(f"generate 原始响应 | content={repr(content)[:200]}")
+            finish_reason = response.choices[0].finish_reason
+            usage = response.usage
+            if not content:
+                logger.warning(
+                    f"LLM 返回空 content | finish_reason={finish_reason} | "
+                    f"tokens=prompt:{usage.prompt_tokens}/completion:{usage.completion_tokens}/total:{usage.total_tokens}"
+                )
+            else:
+                logger.debug(
+                    f"generate 原始响应 | content={repr(content)[:200]} | "
+                    f"finish_reason={finish_reason} | "
+                    f"tokens=prompt:{usage.prompt_tokens}/completion:{usage.completion_tokens}/total:{usage.total_tokens}"
+                )
             return content.strip() if content else ""
 
         except Exception as e:
