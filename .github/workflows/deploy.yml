@@ -73,8 +73,9 @@ jobs:
 
             # 停止旧容器，重新构建并启动
             docker compose down --remove-orphans
-            # 强制清理任何占用 8080 端口的残留容器
-            docker rm -f $(docker ps -aq --filter "publish=8080") 2>/dev/null || true
+            sleep 3
+            # 杀掉任何占用 8080 端口的进程（docker-proxy 可能不会立即释放）
+            sudo fuser -k 8080/tcp 2>/dev/null || true
             sleep 2
             docker compose up -d --build
 
@@ -127,8 +128,8 @@ jobs:
             git pull origin develop
 
             docker compose down --remove-orphans
-            # 强制清理任何占用 8081 端口的残留容器
-            docker rm -f $(docker ps -aq --filter "publish=8081") 2>/dev/null || true
+            sleep 3
+            sudo fuser -k 8081/tcp 2>/dev/null || true
             sleep 2
             APP_PORT=8081 docker compose up -d --build
 
