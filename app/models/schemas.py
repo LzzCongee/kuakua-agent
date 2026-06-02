@@ -179,7 +179,12 @@ class ChatRequest(BaseModel):
     )
     scene: str = Field(
         default="general",
-        description="场景标签，可选值：general(通用), career(事业), beauty(颜值), love(恋爱), daily(日常)",
+        description=(
+            "用户进会话时选的入口场景(用户意图)。"
+            "⚠️ 这是用户意图,不是内容 topic,不参与 prompt 路由。"
+            "真正的内容 topic 由 LLM 自报(见 Message.topic)。"
+            "可取值:general, career, beauty, love, daily"
+        ),
     )
 
     @model_validator(mode='after')
@@ -427,6 +432,39 @@ class MilestoneResponse(BaseModel):
     importance: int = Field(..., description="重要性")
     is_achieved: bool = Field(default=False, description="是否达成")
     created_at: Optional[datetime] = Field(default=None, description="创建时间")
+
+
+# ==================== 话题主动声明 ====================
+
+
+class TopicInterestUpdate(BaseModel):
+    """
+    主动声明话题偏好请求模型
+
+    覆盖式写入,后端会自动过滤非法 topic(非 ALLOWED_TOPICS 之一)并去重。
+    """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"topics": ["career", "love", "healing"]},
+            ]
+        }
+    )
+    topics: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="用户主动关注的话题列表(最多 5 个,非法值会被过滤)",
+    )
+
+
+class TopicInterestResponse(BaseModel):
+    """
+    主动声明话题偏好响应模型
+    """
+    declared_topics: list[str] = Field(
+        default_factory=list,
+        description="过滤后实际生效的 topic 列表",
+    )
 
 
 class ChatDebugInfo(BaseModel):

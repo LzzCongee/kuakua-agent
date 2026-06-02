@@ -72,10 +72,9 @@
     - **Prompt设计**：核心在于约束模型输出“短、平、实、甜”的夸赞，避免废话文学。示例Prompt见附录。
 
 ### 4.2 接口设计 (API)
-仅需3个核心接口：
-1.  ~~`GET /api/quotes/random?scene=all` - 获取随机通用夸夸。~~ （已废弃，改用 `GET /api/chat/greeting`）
-2.  `GET /api/quotes/scene?type=career` - 获取指定场景（事业/颜值/恋爱）的夸夸。
-3.  `POST /api/users/favorites` - 收藏/取消收藏夸夸。
+仅需2个核心接口：
+1.  `POST /api/chat` - 交互式夸夸（文字/图片/语音）。
+2.  `POST /api/users/favorites` - 收藏/取消收藏夸夸。
 
 ---
 

@@ -9,11 +9,9 @@ from app.services.chat_service import ChatService
 from app.services.favorite_service import FavoriteService
 from app.services.memory_service import MemoryService
 from app.services.prompt_service import PromptService
-from app.services.quote_service import QuoteService
 
 __all__ = [
     "MemoryService",
-    "QuoteService",
     "FavoriteService",
     "ChatService",
     "ABTestService",

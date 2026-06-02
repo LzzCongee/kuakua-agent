@@ -140,6 +140,7 @@ class UserProfile(Base):
     conversation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic_preference_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # topic 偏好 JSON 缓存
+    declared_topics: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户主动声明的话题列表(JSON 数组)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)

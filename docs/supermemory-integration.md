@@ -67,7 +67,7 @@ MemorySummary(
 
 这个字符串被拼接到 System Prompt 末尾：
 ```python
-# ChatService._inject_memory() / QuoteService._inject_memory_to_prompt()
+# ChatService._inject_memory() (已统一)
 full_prompt = f"{system_prompt}\n\n【用户个性化信息】...\n{memory_block}"
 ```
 
@@ -101,7 +101,6 @@ await memory_service.extract_and_add_milestone("user_123", "今天加班到很�
 - `app/api/chat.py:88-89` - 每次聊天前获取记忆汇总
 - `app/api/chat.py:91-95` - 将记忆注入到生成流程
 - `app/api/chat.py:243-310` - 聊天后更新会话并提取里程碑
-- `app/api/quotes.py:82-83` - 随机/场景夸夸也支持记忆注入
 - `app/services/memory_service.py:320-371` - 三层记忆查询与组装
 - `app/services/memory_service.py:373-407` - 记忆格式化为 Prompt 字符串
 - `app/models/schemas.py:281-288` - MemorySummary 数据模型
@@ -850,8 +849,7 @@ class MemorySummary(BaseModel):
 |------|------|------|
 | `POST /api/chat` | 生成前增加语义记忆检索 | 回复更关联历史 |
 | `POST /api/chat/stream` | 同上 | 同上 |
-| ~~`GET /api/quotes/random`~~ | 已废弃，改用 `GET /api/chat/greeting` | 随机夸夸更个性化 |
-| `GET /api/quotes/scene` | 同上 | 场景夸夸更关联历史 |
+| `GET /api/chat/greeting` | 同上 | 主动问候更个性化 |
 | `POST /api/favorites` | 收藏时同步到 supermemory | 收藏内容可被语义检索 |
 
 ### 4.2 新增 Admin 接口（可选）

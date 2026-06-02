@@ -229,10 +229,7 @@ const request = (options) => {
 const api = {
   // 获取主动问候（替代旧版随机夸夸）
   getGreeting: (lastActiveAt) => request({ url: `/api/chat/greeting?last_active_at=${lastActiveAt}` }),
-  
-  // 获取场景夸夸
-  getSceneQuote: (type) => request({ url: `/api/quotes/scene?type=${type}` }),
-  
+
   // 收藏夸夸
   addFavorite: (data) => request({
     url: '/api/favorites',
@@ -461,12 +458,7 @@ const request = (options) => {
 const api = {
   // 获取主动问候（替代旧版随机夸夸）
   getGreeting: (lastActiveAt) => request({ url: `/api/chat/greeting?last_active_at=${lastActiveAt}` }),
-  
-  // 获取场景夸夸
-  getSceneQuote: (type) => request({ 
-    url: '/api/quotes/scene?type=' + type 
-  }),
-  
+
   // 收藏夸夸
   addFavorite: (data) => request({
     url: '/api/favorites',
@@ -972,12 +964,7 @@ class ApiService {
   async getGreeting(lastActiveAt) {
     return this.request('/api/chat/greeting?last_active_at=' + lastActiveAt);
   }
-  
-  // 获取场景夸夸
-  async getSceneQuote(type) {
-    return this.request(`/api/quotes/scene?type=${type}`);
-  }
-  
+
   // 添加到收藏
   async addFavorite(quoteId) {
     return this.request('/api/favorites', {

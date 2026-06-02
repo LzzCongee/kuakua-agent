@@ -140,15 +140,23 @@ class MemoryContext(BaseModel):
         topic_lines: list[str] = []
         if self.topic_preference:
             topics = self.topic_preference.get("topics") or []
-            total = self.topic_preference.get("total_likes")
+            total = self.topic_preference.get("total_likes") or 0
+            has_declared = bool(self.topic_preference.get("declared_topics"))
             for t in topics[:3]:  # 最多 3 个,设计上 MAX_INJECTED_TOPICS
                 intensity = t.get("intensity", "weak")
                 topic = t.get("topic", "")
                 weight = t.get("weight", 0)
                 if topic and topic != "general":
-                    topic_lines.append(f"{topic}({intensity}, weight={weight})")
-            if topic_lines and total is not None:
+                    # count=0 表示纯主动声明,弱化显示
+                    if t.get("count", 0) == 0 and t.get("declared"):
+                        topic_lines.append(f"{topic}({intensity}, 主动声明)")
+                    else:
+                        topic_lines.append(f"{topic}({intensity}, weight={weight})")
+            # 仅在有真实收藏数据时显示"基于 X 次收藏"
+            if topic_lines and total > 0:
                 topic_lines.insert(0, f"基于 {total} 次收藏")
+            elif topic_lines and has_declared and total == 0:
+                topic_lines.insert(0, "基于用户主动声明")
 
         if topic_lines:
             if blocks:

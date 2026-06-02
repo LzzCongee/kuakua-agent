@@ -15,31 +15,12 @@ Prompt 模板管理模块
 from __future__ import annotations
 
 import tomllib
-from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 from ..models.schemas import PromptContent
 
 TOML_PATH = Path(__file__).parent / "templates.toml"
-
-
-class SceneType(StrEnum):
-    """
-    夸赞场景类型枚举
-
-    Attributes:
-        GENERAL: 通用场景，适合日常随机夸赞
-        CAREER: 事业搞钱场景，适合工作、面试、创业等
-        BEAUTY: 颜值气质场景，适合自拍、打扮、提升自信
-        LOVE: 甜蜜恋爱场景，适合和伴侣相处、表达爱意
-        DAILY: 日常治愈场景，适合生活小确幸、坚持、心态调整
-    """
-    GENERAL = "general"
-    CAREER = "career"
-    BEAUTY = "beauty"
-    LOVE = "love"
-    DAILY = "daily"
 
 
 def _load_toml() -> dict:
@@ -72,38 +53,6 @@ def _build_system_prompt(role: str, task: str, notes: list[str]) -> str:
         parts.extend(["", output_format])
     parts.extend(["", "【本场景特别注意】", notes_block])
     return "\n".join(parts) + "\n"
-
-
-def get_prompt(scene: SceneType) -> PromptContent:
-    """获取指定场景的 Prompt 模板"""
-    scene_data = _data["scenes"][scene.value]
-    return {
-        "system": _build_system_prompt(
-            role=scene_data["role"],
-            task=scene_data["task"],
-            notes=scene_data["notes"],
-        ),
-        "user": scene_data["user"],
-    }
-
-
-def get_all_scenes() -> list[SceneType]:
-    """获取所有支持的场景类型列表"""
-    return list(SceneType)
-
-
-def get_scene_by_value(value: str) -> SceneType:
-    """
-    根据字符串值获取场景类型
-
-    Raises:
-        ValueError: 当传入的值不匹配任何场景时抛出
-    """
-    try:
-        return SceneType(value.lower())
-    except ValueError:
-        available = ", ".join([s.value for s in SceneType])
-        raise ValueError(f"未知的场景类型: {value}。可用场景: {available}")
 
 
 def get_chat_prompt(input_type: Literal["text_only", "image_only", "mixed"]) -> PromptContent:

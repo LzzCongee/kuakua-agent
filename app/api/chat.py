@@ -960,7 +960,7 @@ async def _update_session_after_chat(
                 message_type=message_type,
                 has_image=has_image,
                 image_desc=response.image_desc,
-                scene=request.scene,
+                scene=response.scene,
             )
             logger.debug(f"添加用户消息 | user_id={user_id} | trace_id={trace_id} | type={message_type}")
 
@@ -1046,7 +1046,7 @@ async def _update_session_after_chat(
                 user_id=user_id,
                 user_message=request.text or "",
                 ai_response=response.content,
-                scene=request.scene,
+                scene=response.scene,
                 emotion=extraction_result.emotion if extraction_result else None,
             )
             logger.debug(f"语义记忆保存完成 | user_id={user_id}")
@@ -1115,7 +1115,7 @@ async def _update_session_after_chat_with_debug(
                 message_type=message_type,
                 has_image=has_image,
                 image_desc=response.image_desc,
-                scene=request.scene,
+                scene=response.scene,
             )
 
             # 存储 AI 回复
@@ -1197,7 +1197,7 @@ async def _update_session_after_chat_with_debug(
                 user_id=user_id,
                 user_message=request.text or "",
                 ai_response=response.content,
-                scene=request.scene,
+                scene=response.scene,
                 emotion=extraction_result.emotion if extraction_result else None,
             )
 

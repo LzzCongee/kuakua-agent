@@ -80,6 +80,9 @@ cloudbaserc.json
 # codebuddy
 .codebuddy/
 
+# GitHub Meta 缓存
+meta.json
+
 # ==================== 以下文件应被 Git 追踪（不被忽略） ====================
 # nginx/ 下的配置文件（nginx.conf, conf.d/*.conf）—— 基础设施即代码
 # .github/workflows/ 下的 CI/CD 工作流 —— 自动部署配置

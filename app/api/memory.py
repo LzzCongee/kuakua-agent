@@ -14,11 +14,13 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.dependencies import HeaderUserID
 from ..core.logging import get_logger
 from ..models.database import get_session
+from ..models.models import UserProfile
 from ..models.schemas import (
     ApiResponse,
     MemorySummary,
@@ -27,10 +29,13 @@ from ..models.schemas import (
     SessionCreate,
     SessionResponse,
     SessionUpdate,
+    TopicInterestResponse,
+    TopicInterestUpdate,
     UserProfileResponse,
     UserProfileUpdate,
 )
 from ..services.memory_service import MemoryService
+from ..services.topic_preference_service import TopicPreferenceService
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -203,10 +208,10 @@ async def get_memory_summary(
 ) -> ApiResponse[MemorySummary]:
     """
     获取用户记忆汇总（用于注入 Prompt）
-    
+
     Args:
         session_id: 可选的当前会话ID
-        
+
     Returns:
         完整的记忆汇总信息
     """
@@ -214,6 +219,60 @@ async def get_memory_summary(
     summary = await service.get_memory_summary(user_id, session_id)
     logger.info(f"用户记忆汇总获取完成 | user_id={user_id}")
     return ApiResponse(data=summary)
+
+
+# ==================== 话题主动声明接口 ====================
+
+
+@router.put("/topic-interests", response_model=ApiResponse[TopicInterestResponse])
+async def set_topic_interests(
+    data: TopicInterestUpdate,
+    session: AdminSessionDep,
+    user_id: HeaderUserID,
+) -> ApiResponse[TopicInterestResponse]:
+    """
+    主动声明话题偏好(覆盖式写入)
+
+    流程:
+    1) 过滤非法 topic(非 ALLOWED_TOPICS 之一)
+    2) 写入 UserProfile.declared_topics
+    3) 合并到 topic_preference_snapshot(每条 +2.0 权重)
+    """
+    logger.info(f"主动声明 topic | user_id={user_id} | topics={data.topics}")
+    service = TopicPreferenceService()
+    valid_topics = await service.set_declared_topics(
+        user_id=user_id, topics=data.topics, session=session
+    )
+    logger.info(
+        f"主动声明 topic 完成 | user_id={user_id} | valid={valid_topics}"
+    )
+    return ApiResponse(data=TopicInterestResponse(declared_topics=valid_topics))
+
+
+@router.get("/topic-interests", response_model=ApiResponse[TopicInterestResponse])
+async def get_topic_interests(
+    session: AdminSessionDep,
+    user_id: HeaderUserID,
+) -> ApiResponse[TopicInterestResponse]:
+    """
+    读取用户主动声明的话题偏好列表
+    """
+    row = (
+        await session.execute(
+            select(UserProfile.declared_topics).where(
+                UserProfile.user_id == user_id
+            )
+        )
+    ).first()
+    declared: list[str] = []
+    if row and row[0]:
+        try:
+            declared = json.loads(row[0])
+            if not isinstance(declared, list):
+                declared = []
+        except (json.JSONDecodeError, TypeError):
+            declared = []
+    return ApiResponse(data=TopicInterestResponse(declared_topics=declared))
 
 
 # ==================== 会话相关接口 ====================

@@ -425,6 +425,166 @@ async def test_no_data_returns_none():
     print("  PASS: test_no_data_returns_none")
 
 
+# ==================== 主动声明 topic 合并 ====================
+
+
+async def test_declared_only_passes_cold_start():
+    """纯主动声明(0 收藏)能通过冷启动门控"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_decl_only"
+
+    async with get_db() as session:
+        await svc.set_declared_topics(USER, ["career", "love"], session)
+
+    async with get_db() as session:
+        pref = await svc.compute_preference(USER, session)
+        assert pref is not None, "纯主动声明应通过冷启动门控"
+        topics = {t["topic"]: t for t in pref["topics"]}
+        assert "career" in topics and "love" in topics
+        # 都是纯声明 → weight = DECLARED_TOPIC_BOOST
+        assert topics["career"]["weight"] == 2.0
+        assert topics["love"]["count"] == 0
+        assert topics["love"]["last_days_ago"] == -1
+        assert topics["love"]["declared"] is True
+        # 平局 2.0/2.0 = 1.0 < 1.5 → 取 top 3
+        assert len(pref["topics"]) == 2
+        assert pref["total_likes"] == 0
+    print("  PASS: test_declared_only_passes_cold_start")
+
+
+async def test_declared_boost_overlays_passive_weight():
+    """主动声明的 topic 叠加在被动权重之上"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_boost"
+
+    async with get_db() as session:
+        session.add(UserProfile(user_id=USER))
+        # 被动:career 1 次(0d)→ weight = 1.0
+        session.add(UserTopicPreference(
+            user_id=USER, topic="career", like_count=1,
+            last_liked_at=datetime.utcnow(),
+            first_liked_at=datetime.utcnow(),
+        ))
+        # 被动:love 1 次(0d)→ weight = 1.0
+        # 用 love 也收藏 1 次,让 lead ratio 落在 [1.0, 1.5) 之间,
+        # 否则 1+2=3.0 vs 2.0 正好 1.5x 触发 clear lead,love 被裁掉
+        session.add(UserTopicPreference(
+            user_id=USER, topic="love", like_count=1,
+            last_liked_at=datetime.utcnow(),
+            first_liked_at=datetime.utcnow(),
+        ))
+
+    async with get_db() as session:
+        # 主动声明 career + love
+        await svc.set_declared_topics(USER, ["career", "love"], session)
+
+    async with get_db() as session:
+        pref = await svc.compute_preference(USER, session)
+        topics = {t["topic"]: t for t in pref["topics"]}
+        # career: 被动 1.0 + boost 2.0 = 3.0
+        assert topics["career"]["weight"] == 3.0, \
+            f"career 应为 1.0+2.0=3.0,实际 {topics['career']['weight']}"
+        # love: 被动 1.0 + boost 2.0 = 3.0
+        assert topics["love"]["weight"] == 3.0, \
+            f"love 应为 1.0+2.0=3.0,实际 {topics['love']['weight']}"
+        # 平局 3.0/3.0=1.0 < 1.5 → 两个都在
+        assert "career" in topics and "love" in topics
+        # declared 标记
+        assert topics["career"]["declared"] is True
+        assert topics["love"]["declared"] is True
+    print("  PASS: test_declared_boost_overlays_passive_weight")
+
+
+async def test_undeclare_keeps_favorite_history():
+    """取消声明某个 topic,不删 UserTopicPreference 历史"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_undeclare"
+
+    # 1) 3 次 career 收藏
+    async with get_db() as session:
+        session.add(UserProfile(user_id=USER))
+    for _ in range(3):
+        async with get_db() as session:
+            await svc.on_favorite_added(USER, "career", session)
+
+    # 2) 主动声明 career
+    async with get_db() as session:
+        await svc.set_declared_topics(USER, ["career"], session)
+
+    # 3) 取消声明(空列表)
+    async with get_db() as session:
+        await svc.set_declared_topics(USER, [], session)
+
+    # 4) 验证:UserTopicPreference 行还在(like_count=3),但 weight 不再加 boost
+    async with get_db() as session:
+        row = (await session.execute(
+            select(UserTopicPreference).where(
+                UserTopicPreference.user_id == USER,
+                UserTopicPreference.topic == "career",
+            )
+        )).scalar_one()
+        assert row.like_count == 3, "被动历史应保留"
+
+        pref = await svc.compute_preference(USER, session)
+        topics = {t["topic"]: t for t in pref["topics"]}
+        # weight = 1+1+1 = 3.0(无 boost)
+        assert topics["career"]["weight"] == 3.0
+        assert topics["career"]["declared"] is False
+    print("  PASS: test_undeclare_keeps_favorite_history")
+
+
+async def test_invalid_topics_filtered():
+    """非法 topic 被静默过滤,合法值保留"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_filter"
+
+    async with get_db() as session:
+        result = await svc.set_declared_topics(
+            USER, ["career", "invalid_topic_xyz", "love", "general"], session
+        )
+    # general 和非法值都被过滤,只留 career + love
+    assert result == ["career", "love"], \
+        f"应过滤为 [career, love],实际 {result}"
+    print("  PASS: test_invalid_topics_filtered")
+
+
+async def test_set_declared_creates_profile_if_missing():
+    """用户无 profile 时,set_declared_topics 应自动创建"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_new_no_profile"
+
+    async with get_db() as session:
+        result = await svc.set_declared_topics(USER, ["career"], session)
+        assert result == ["career"]
+        profile = (await session.execute(
+            select(UserProfile).where(UserProfile.user_id == USER)
+        )).scalar_one()
+        assert profile.declared_topics is not None
+        import json as _json
+        assert _json.loads(profile.declared_topics) == ["career"]
+    print("  PASS: test_set_declared_creates_profile_if_missing")
+
+
+async def test_set_declared_dedupes_preserving_order():
+    """去重时保留插入顺序"""
+    await reset_db()
+    svc = TopicPreferenceService()
+    USER = "u_dedup"
+
+    async with get_db() as session:
+        result = await svc.set_declared_topics(
+            USER, ["love", "career", "love", "daily", "career"], session
+        )
+    assert result == ["love", "career", "daily"], \
+        f"应去重并保序为 [love, career, daily],实际 {result}"
+    print("  PASS: test_set_declared_dedupes_preserving_order")
+
+
 async def main():
     tests = [
         test_decay_weight_exact,
@@ -439,6 +599,13 @@ async def main():
         test_snapshot_empty_returns_none,
         test_refresh_snapshot_writes_to_profile,
         test_no_data_returns_none,
+        # 主动声明相关
+        test_declared_only_passes_cold_start,
+        test_declared_boost_overlays_passive_weight,
+        test_undeclare_keeps_favorite_history,
+        test_invalid_topics_filtered,
+        test_set_declared_creates_profile_if_missing,
+        test_set_declared_dedupes_preserving_order,
     ]
     failed = 0
     for t in tests:

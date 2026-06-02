@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from ..config import get_settings
+from ..core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -89,9 +92,38 @@ async def init_db(db_url: Optional[str] = None) -> None:
     # 确保 ORM 模型被导入，这样 create_all 才能创建对应的表
     import app.models.models  # noqa: F401
 
-    # 创建所有表
+    # 创建所有表 + 轻量级迁移(同事务,保证连接未关闭)
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # add column 失败通常意味着"已存在",安全忽略
+        # 当前只覆盖 declared_topics 字段(v2 新增);后续新字段在此追加
+        await _ensure_column(conn, "user_profiles", "declared_topics", "TEXT")
+
+
+async def _ensure_column(conn: Any, table: str, column: str, col_type: str) -> None:
+    """
+    兜底 ALTER TABLE:为已存在的表添加新列。
+
+    SQLite/PostgreSQL 都支持"ADD COLUMN IF NOT EXISTS"语义,但写法不同:
+    - SQLite:用 try/except 捕获 "duplicate column" 错误
+    - PostgreSQL:用 IF NOT EXISTS 子句
+
+    这里统一采用 try/except,覆盖两个方言。
+    """
+    from sqlalchemy import text
+
+    if _is_postgresql(_get_database_url()):
+        sql = f'ALTER TABLE "{table}" ADD COLUMN IF NOT EXISTS "{column}" {col_type}'
+    else:
+        sql = f'ALTER TABLE "{table}" ADD COLUMN "{column}" {col_type}'
+    try:
+        await conn.execute(text(sql))
+        logger.info(f"迁移 ADD COLUMN | {table}.{column} {col_type}")
+    except Exception as e:
+        msg = str(e).lower()
+        if "duplicate" in msg or "already exists" in msg:
+            return
+        raise
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

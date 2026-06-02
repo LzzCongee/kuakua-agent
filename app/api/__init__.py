@@ -6,6 +6,6 @@ API 路由模块
 
 from __future__ import annotations
 
-from . import admin, chat, favorites, memory, quotes
+from . import admin, chat, favorites, memory
 
-__all__ = ["admin", "chat", "favorites", "memory", "quotes"]
+__all__ = ["admin", "chat", "favorites", "memory"]
