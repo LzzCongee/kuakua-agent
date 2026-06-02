@@ -135,6 +135,7 @@ class MemoryService:
         has_image: bool = False,
         image_desc: str | None = None,
         scene: str = "general",
+        topic: str = "general",
         emotion: str | None = None,
     ) -> Message:
         """
@@ -148,7 +149,8 @@ class MemoryService:
             message_type: 消息类型 (text / image / mixed)
             has_image: 是否包含图片
             image_desc: 图片描述
-            scene: 场景标签
+            scene: 场景标签(用户选的)
+            topic: 内容 topic(LLM 自报,仅 assistant 消息有值)
             emotion: 情绪标签
 
         Returns:
@@ -163,6 +165,7 @@ class MemoryService:
             has_image=has_image,
             image_desc=image_desc,
             scene=scene,
+            topic=topic,
             emotion=emotion,
         )
         self.session.add(message)
@@ -676,14 +679,15 @@ class MemoryService:
         """
         # 获取用户偏好
         profile = await self.get_user_profile(user_id)
-        
+
         # 解析 JSON 字段
         user_tags: list[str] = []
         avoid_words: list[str] = []
         prefer_scene: str | None = None
         prefer_style: str | None = None
         last_emotion: str | None = None
-        
+        topic_preference: dict[str, Any] | None = None
+
         if profile:
             prefer_scene = profile.prefer_scene if profile.prefer_scene else None
             prefer_style = profile.prefer_style if profile.prefer_style else None
@@ -698,13 +702,20 @@ class MemoryService:
                     avoid_words = json.loads(profile.avoid_words)
                 except (json.JSONDecodeError, TypeError):
                     avoid_words = []
+            # 读取 topic 偏好 snapshot(由 TopicPreferenceService 写入)
+            if profile.topic_preference_snapshot:
+                try:
+                    topic_preference = json.loads(profile.topic_preference_snapshot)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"topic snapshot JSON 解析失败 | user={user_id}")
+                    topic_preference = None
 
         # 读取人格偏好（新增字段）
         personality_prefer = profile.personality_prefer if profile and profile.personality_prefer else "default"
         humor_taste = profile.humor_taste if profile else None
         tone_shift = bool(profile.tone_shift) if profile else True
-        
-        logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)}")
+
+        logger.debug(f"记忆汇总: 偏好 | prefer_scene={prefer_scene} | prefer_style={prefer_style} | tags_count={len(user_tags)} | topic_pref={'yes' if topic_preference else 'no'}")
 
         # 获取最近会话消息
         recent_messages: list[dict[str, Any]] = []
@@ -740,6 +751,7 @@ class MemoryService:
             personality_prefer=personality_prefer,
             humor_taste=humor_taste,
             tone_shift=tone_shift,
+            topic_preference=topic_preference,
         )
 
     def format_memory_for_prompt(self, memory: MemorySummary) -> str:

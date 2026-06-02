@@ -489,3 +489,11 @@ class MemorySummary(BaseModel):
         default=True,
         description="是否接受语气转变（有时正经有时搞笑）"
     )
+
+    # topic 偏好(新增)— 来自 UserProfile.topic_preference_snapshot 的解析结果
+    # 结构: {"topics": [{topic, weight, count, last_days_ago, intensity}, ...],
+    #        "total_likes": int, "generated_at": iso str}
+    topic_preference: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="topic 偏好聚合(衰减权重 + 强度标签),供 prompt 注入用"
+    )

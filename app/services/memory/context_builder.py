@@ -51,6 +51,14 @@ class MemoryContext(BaseModel):
         description="累计交互次数，用于判断用户是否活跃"
     )
 
+    # topic 偏好(新增)— 来自收藏聚合的衰减权重结果
+    # 结构: {"topics": [{topic, weight, count, last_days_ago, intensity}, ...],
+    #        "total_likes": int, "generated_at": iso str}
+    topic_preference: Optional[dict] = Field(
+        default=None,
+        description="topic 偏好(lead topics + 强度标签),供 prompt 注入"
+    )
+
     def to_prompt_string(self) -> str:
         """
         转换为结构化 Prompt 字符串（放在 user message 中）
@@ -123,6 +131,32 @@ class MemoryContext(BaseModel):
             blocks.append("【深度记忆】")
             blocks.extend(memory_lines)
 
+        # === 区块 5：话题偏好(衰减权重 + 强度) ===
+        # 注入 lead topic + 强度标签,让 LLM 在生成时主动倾向这些方向
+        # 强度说明:
+        #   strong(weight>=5): 明显偏好,可以放心地往这个方向靠
+        #   medium(weight>=2): 中等偏好,可适度倾斜
+        #   weak(weight<2):   弱偏好,作为软提示,不要过度
+        topic_lines: list[str] = []
+        if self.topic_preference:
+            topics = self.topic_preference.get("topics") or []
+            total = self.topic_preference.get("total_likes")
+            for t in topics[:3]:  # 最多 3 个,设计上 MAX_INJECTED_TOPICS
+                intensity = t.get("intensity", "weak")
+                topic = t.get("topic", "")
+                weight = t.get("weight", 0)
+                if topic and topic != "general":
+                    topic_lines.append(f"{topic}({intensity}, weight={weight})")
+            if topic_lines and total is not None:
+                topic_lines.insert(0, f"基于 {total} 次收藏")
+
+        if topic_lines:
+            if blocks:
+                blocks.append("")
+            blocks.append("【话题偏好】")
+            blocks.append("用户在以下话题上有明显偏好,生成内容时可自然往这些方向靠:")
+            blocks.extend(f"- {line}" for line in topic_lines)
+
         if not blocks:
             return ""
 
@@ -138,6 +172,7 @@ class MemoryContext(BaseModel):
             or self.milestones
             or self.recent_messages
             or self.semantic_memories
+            or self.topic_preference
         )
 
     @classmethod
@@ -179,4 +214,5 @@ class MemoryContext(BaseModel):
             humor_taste=getattr(memory_summary, 'humor_taste', None),
             tone_shift=getattr(memory_summary, 'tone_shift', True),
             interaction_count=getattr(memory_summary, 'interaction_count', 0) or 0,
+            topic_preference=getattr(memory_summary, 'topic_preference', None),
         )
