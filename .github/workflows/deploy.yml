@@ -47,13 +47,13 @@ jobs:
             set -e
 
             # 首次部署时自动初始化目录
-            if [ ! -d "/opt/kuakua-agent/.git" ]; then
+            if [ ! -d "$HOME/kuakua-agent/.git" ]; then
               echo ">> 首次部署，初始化目录..."
-              mkdir -p /opt/kuakua-agent
-              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git /opt/kuakua-agent
+              mkdir -p $HOME/kuakua-agent
+              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git $HOME/kuakua-agent
             fi
 
-            cd /opt/kuakua-agent
+            cd $HOME/kuakua-agent
 
             # 拉取最新代码
             git pull origin main
@@ -84,13 +84,13 @@ jobs:
             set -e
 
             # 首次部署时自动初始化目录
-            if [ ! -d "/opt/kuakua-agent/.git" ]; then
+            if [ ! -d "$HOME/kuakua-agent-staging/.git" ]; then
               echo ">> 首次部署，初始化目录..."
-              mkdir -p /opt/kuakua-agent
-              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git /opt/kuakua-agent
+              mkdir -p $HOME/kuakua-agent-staging
+              git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git $HOME/kuakua-agent-staging
             fi
 
-            cd /opt/kuakua-agent
+            cd $HOME/kuakua-agent-staging
 
             git fetch origin develop
             git checkout develop
